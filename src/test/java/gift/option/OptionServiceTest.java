@@ -2,6 +2,7 @@ package gift.option;
 
 import gift.category.Category;
 import gift.product.Product;
+import gift.product.ProductFixture;
 import gift.product.ProductRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -10,7 +11,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.lang.reflect.Field;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -33,15 +33,10 @@ class OptionServiceTest {
     @InjectMocks
     private OptionService optionService;
 
-    private Product createProduct() {
-        Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
-        return new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
-    }
+    private static final Category CATEGORY = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
 
-    private void setId(Object entity, Long id) throws Exception {
-        Field field = entity.getClass().getDeclaredField("id");
-        field.setAccessible(true);
-        field.set(entity, id);
+    private Product createProduct() {
+        return ProductFixture.product(1L, "아메리카노", 4500, "http://img.com/coffee.png", CATEGORY);
     }
 
     @Test
@@ -111,9 +106,8 @@ class OptionServiceTest {
 
     @Test
     @DisplayName("옵션을 삭제한다")
-    void delete() throws Exception {
+    void delete() {
         Product product = createProduct();
-        setId(product, 1L);
         Option option1 = new Option(product, "Tall", 100);
         Option option2 = new Option(product, "Grande", 50);
 

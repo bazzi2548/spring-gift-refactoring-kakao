@@ -2,7 +2,9 @@ package gift.wish;
 
 import gift.category.Category;
 import gift.member.Member;
+import gift.member.MemberFixture;
 import gift.product.Product;
+import gift.product.ProductFixture;
 import gift.product.ProductRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,7 +16,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
-import java.lang.reflect.Field;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -37,28 +38,19 @@ class WishServiceTest {
     @InjectMocks
     private WishService wishService;
 
-    private void setId(Object entity, Long id) throws Exception {
-        Field field = entity.getClass().getDeclaredField("id");
-        field.setAccessible(true);
-        field.set(entity, id);
+    private static final Category CATEGORY = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
+
+    private Product createProduct() {
+        return ProductFixture.product(1L, "아메리카노", 4500, "http://img.com/coffee.png", CATEGORY);
     }
 
-    private Product createProduct() throws Exception {
-        Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
-        Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
-        setId(product, 1L);
-        return product;
-    }
-
-    private Member createMember() throws Exception {
-        Member member = new Member("test@email.com");
-        setId(member, 1L);
-        return member;
+    private Member createMember() {
+        return MemberFixture.member(1L, "test@email.com");
     }
 
     @Test
     @DisplayName("회원의 위시리스트를 조회한다")
-    void findByMember() throws Exception {
+    void findByMember() {
         Member member = createMember();
         Product product = createProduct();
         Wish wish = new Wish(1L, product);
@@ -74,7 +66,7 @@ class WishServiceTest {
 
     @Test
     @DisplayName("위시리스트에 상품을 추가한다")
-    void add() throws Exception {
+    void add() {
         Member member = createMember();
         Product product = createProduct();
         WishRequest request = new WishRequest(1L);
@@ -92,7 +84,7 @@ class WishServiceTest {
 
     @Test
     @DisplayName("이미 위시리스트에 있는 상품을 추가하면 기존 항목을 반환한다")
-    void addDuplicate() throws Exception {
+    void addDuplicate() {
         Member member = createMember();
         Product product = createProduct();
         WishRequest request = new WishRequest(1L);
@@ -109,7 +101,7 @@ class WishServiceTest {
 
     @Test
     @DisplayName("존재하지 않는 상품을 위시리스트에 추가 시 예외가 발생한다")
-    void addProductNotFound() throws Exception {
+    void addProductNotFound() {
         Member member = createMember();
         WishRequest request = new WishRequest(999L);
 
@@ -121,7 +113,7 @@ class WishServiceTest {
 
     @Test
     @DisplayName("새로운 위시 여부를 확인한다 - 새 위시")
-    void isNewWishTrue() throws Exception {
+    void isNewWishTrue() {
         Member member = createMember();
 
         given(wishRepository.findByMemberIdAndProductId(1L, 1L)).willReturn(Optional.empty());
@@ -131,7 +123,7 @@ class WishServiceTest {
 
     @Test
     @DisplayName("새로운 위시 여부를 확인한다 - 기존 위시")
-    void isNewWishFalse() throws Exception {
+    void isNewWishFalse() {
         Member member = createMember();
         Product product = createProduct();
         Wish wish = new Wish(1L, product);
@@ -143,11 +135,10 @@ class WishServiceTest {
 
     @Test
     @DisplayName("위시리스트에서 항목을 삭제한다")
-    void remove() throws Exception {
+    void remove() {
         Member member = createMember();
         Product product = createProduct();
-        Wish wish = new Wish(1L, product);
-        setId(wish, 10L);
+        Wish wish = new Wish(10L, 1L, product);
 
         given(wishRepository.findById(10L)).willReturn(Optional.of(wish));
 
@@ -158,7 +149,7 @@ class WishServiceTest {
 
     @Test
     @DisplayName("존재하지 않는 위시 삭제 시 예외가 발생한다")
-    void removeNotFound() throws Exception {
+    void removeNotFound() {
         Member member = createMember();
 
         given(wishRepository.findById(999L)).willReturn(Optional.empty());
@@ -169,11 +160,10 @@ class WishServiceTest {
 
     @Test
     @DisplayName("다른 회원의 위시를 삭제 시 예외가 발생한다")
-    void removeForbidden() throws Exception {
+    void removeForbidden() {
         Member member = createMember(); // id = 1L
         Product product = createProduct();
-        Wish wish = new Wish(999L, product); // memberId = 999L (다른 회원)
-        setId(wish, 10L);
+        Wish wish = new Wish(10L, 999L, product); // memberId = 999L (다른 회원)
 
         given(wishRepository.findById(10L)).willReturn(Optional.of(wish));
 

@@ -31,6 +31,11 @@ public class Member {
     protected Member() {
     }
 
+    protected Member(Long id, String email) {
+        this.id = id;
+        this.email = email;
+    }
+
     public Member(String email, Password password) {
         this.email = email;
         this.password = password;

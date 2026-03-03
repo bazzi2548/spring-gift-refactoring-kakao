@@ -2,10 +2,13 @@ package gift.order;
 
 import gift.category.Category;
 import gift.member.Member;
+import gift.member.MemberFixture;
 import gift.member.MemberRepository;
 import gift.option.Option;
+import gift.option.OptionFixture;
 import gift.option.OptionRepository;
 import gift.product.Product;
+import gift.product.ProductFixture;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,7 +19,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
-import java.lang.reflect.Field;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -44,22 +46,13 @@ class OrderServiceTest {
     @InjectMocks
     private OrderService orderService;
 
-    private void setId(Object entity, Long id) throws Exception {
-        Field field = entity.getClass().getDeclaredField("id");
-        field.setAccessible(true);
-        field.set(entity, id);
-    }
+    private static final Category CATEGORY = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
 
     @Test
     @DisplayName("회원의 주문 목록을 조회한다")
-    void findByMember() throws Exception {
-        Member member = new Member("test@email.com");
-        setId(member, 1L);
-
-        Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
-        Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
-        Option option = new Option(product, "Tall", 100);
-        setId(option, 10L);
+    void findByMember() {
+        Member member = MemberFixture.member(1L, "test@email.com");
+        Option option = OptionFixture.option(10L, createProduct(), "Tall", 100);
         Order order = new Order(option, 1L, 2, "선물");
 
         given(orderRepository.findByMemberId(1L, PageRequest.of(0, 10)))
@@ -73,15 +66,10 @@ class OrderServiceTest {
 
     @Test
     @DisplayName("주문을 생성한다")
-    void create() throws Exception {
-        Member member = new Member("test@email.com");
-        setId(member, 1L);
+    void create() {
+        Member member = MemberFixture.member(1L, "test@email.com");
         member.chargePoint(100000);
-
-        Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
-        Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
-        Option option = new Option(product, "Tall", 100);
-        setId(option, 10L);
+        Option option = OptionFixture.option(10L, createProduct(), "Tall", 100);
 
         OrderRequest request = new OrderRequest(10L, 2, "선물입니다");
         Order saved = new Order(option, 1L, 2, "선물입니다");
@@ -112,14 +100,10 @@ class OrderServiceTest {
 
     @Test
     @DisplayName("포인트 부족 시 주문 생성에 실패한다")
-    void createInsufficientPoints() throws Exception {
-        Member member = new Member("test@email.com");
-        setId(member, 1L);
+    void createInsufficientPoints() {
+        Member member = MemberFixture.member(1L, "test@email.com");
         member.chargePoint(1000); // 포인트 부족
-
-        Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
-        Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
-        Option option = new Option(product, "Tall", 100);
+        Option option = new Option(createProduct(), "Tall", 100);
 
         OrderRequest request = new OrderRequest(10L, 2, "선물");
 
@@ -133,14 +117,10 @@ class OrderServiceTest {
 
     @Test
     @DisplayName("재고보다 많은 수량 주문 시 예외가 발생한다")
-    void createExceedingStock() throws Exception {
-        Member member = new Member("test@email.com");
-        setId(member, 1L);
+    void createExceedingStock() {
+        Member member = MemberFixture.member(1L, "test@email.com");
         member.chargePoint(100000);
-
-        Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
-        Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
-        Option option = new Option(product, "Tall", 5);
+        Option option = new Option(createProduct(), "Tall", 5);
 
         OrderRequest request = new OrderRequest(10L, 10, "선물");
 
@@ -149,5 +129,9 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.create(member, request))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("차감할 수량이 현재 재고보다 많습니다");
+    }
+
+    private Product createProduct() {
+        return new Product("아메리카노", 4500, "http://img.com/coffee.png", CATEGORY);
     }
 }
