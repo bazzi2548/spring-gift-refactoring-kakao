@@ -884,3 +884,295 @@ public class AdminController {
 - Controller가 예외 처리 없이 비즈니스 위임만 담당하게 되어 **Controller의 역할이 더 명확**해진다.
 - 에러 응답 형식을 통일하거나 변경할 때 **한 파일만 수정**하면 전체 API에 반영된다.
 - 새로운 예외 타입(예: `AccessDeniedException`)을 추가할 때 `GlobalExceptionHandler`에 핸들러 하나만 추가하면 모든 Controller에서 즉시 처리된다.
+
+---
+
+## 9. 테스트 Fixture 패턴 (Reflection 제거)
+
+### 키워드
+
+| 키워드 | 무엇인가 | 왜 사용하는가 |
+|--------|----------|--------------|
+| Reflection | Java의 `java.lang.reflect` 패키지를 통해 런타임에 클래스의 필드, 메서드, 생성자 등에 **접근 제한(private/protected)을 무시하고** 접근하는 기술. `field.setAccessible(true)`로 private 필드를 읽거나 쓸 수 있다. | 프레임워크(Spring, JPA, Jackson 등)가 **사용자가 작성한 클래스의 내부 구조를 런타임에 분석·조작**해야 할 때 사용한다. 예: JPA가 `@Entity`의 private 필드에 DB 값을 주입하거나, Jackson이 private 필드를 JSON으로 직렬화하는 경우. 프레임워크가 아닌 **애플리케이션 코드에서 직접 사용하면 캡슐화를 깨뜨리고, 리팩토링에 취약하며, 컴파일 타임 안전성을 잃는다.** |
+| 캡슐화(Encapsulation) | 객체의 내부 상태(필드)를 외부에서 직접 접근하지 못하도록 숨기고, **공개된 메서드를 통해서만 상호작용**하도록 하는 OOP 원칙. `private` 필드 + `public` 메서드가 기본 형태다. | 내부 구현을 변경해도 외부 코드에 영향을 주지 않기 위해서다. 필드명을 바꾸거나, 내부 자료구조를 변경하거나, 유효성 검증을 추가해도 공개 인터페이스가 동일하면 호출자는 수정할 필요가 없다. Reflection으로 private 필드에 직접 접근하면 이 계약이 깨져서, **내부 변경이 곧 외부 코드의 깨짐**으로 이어진다. |
+| 테스트 Fixture | 테스트에서 반복적으로 필요한 **객체를 일관되게 생성**해주는 헬퍼 클래스 또는 메서드. Factory Method 패턴이나 Builder 패턴으로 구현한다. | 테스트마다 객체 생성 코드가 중복되면, 생성자 시그니처가 바뀔 때 **모든 테스트를 수정**해야 한다. Fixture에 생성 로직을 집중하면 변경 지점이 1곳이 되고, 테스트 코드는 "무엇을 검증하는가"에 집중할 수 있다. |
+| 테스트 빌더 패턴 | Fixture의 한 형태로, **메서드 체이닝으로 필요한 값만 지정**하고 나머지는 기본값을 사용하는 패턴. `new OrderTestBuilder().id(100L).name("catsbi").build()` 형태로 사용한다. | 엔티티의 필드가 많을 때 Factory Method는 파라미터가 길어져 가독성이 떨어진다. Builder 패턴은 **테스트에서 관심 있는 값만 명시**하고, 나머지는 기본값으로 채워 테스트 의도를 명확히 드러낸다. |
+| `protected` 접근 제한자 | 같은 패키지 내의 클래스와 하위 클래스에서만 접근할 수 있는 접근 수준. `private`보다 넓고 `public`보다 좁다. | 테스트용 생성자를 `public`으로 열면 프로덕션 코드에서도 사용 가능해져 **잘못된 사용을 유도**한다. `protected`로 제한하면 같은 패키지의 Fixture 클래스(테스트 코드)에서만 접근 가능하고, 다른 패키지의 프로덕션 코드에서는 사용할 수 없다. Java의 패키지 구조를 활용한 **자연스러운 접근 제어**다. |
+
+### 구현 원리
+
+#### 문제: 테스트에서 Reflection으로 id를 설정하는 패턴
+
+JPA 엔티티의 `id` 필드는 DB가 자동 생성(`@GeneratedValue`)하므로 setter가 없다.
+단위테스트(Mock 기반)에서는 DB 없이 id가 설정된 엔티티가 필요한데,
+Reflection으로 private 필드에 직접 접근하는 패턴이 흔히 사용되었다:
+
+```java
+// 문제가 되는 패턴
+private void setId(Object entity, Long id) throws Exception {
+    Field field = entity.getClass().getDeclaredField("id");
+    field.setAccessible(true);  // private 접근 제한을 강제로 해제
+    field.set(entity, id);      // 필드명 "id"에 의존 (문자열 기반)
+}
+```
+
+이 패턴의 위험성:
+1. **캡슐화 파괴**: `setAccessible(true)`는 Java의 접근 제한을 무시한다. private으로 숨긴 이유(외부에서 임의 변경 방지)가 무효화된다.
+2. **문자열 기반 참조**: `"id"`라는 필드명을 문자열로 참조하므로, 필드명이 바뀌면 **컴파일 에러 없이 런타임에 실패**한다.
+3. **고비용**: Reflection은 JVM의 보안 검사를 우회하므로 일반 메서드 호출보다 수십 배 느리다. 대량 테스트에서 성능에 영향을 줄 수 있다.
+4. **`throws Exception` 전파**: Reflection API는 checked exception을 던지므로, 모든 테스트 메서드에 `throws Exception`이 전파되어 실제 테스트 예외와 구분이 어려워진다.
+
+#### 해결 방법 1: `protected` 생성자 + Fixture 팩토리 메서드 (본 프로젝트 적용)
+
+엔티티에 `protected` 생성자를 추가하고, 같은 패키지의 Fixture 클래스에서 이를 호출한다.
+
+```
+src/main/java/gift/member/Member.java          ← protected Member(Long id, ...)
+src/test/java/gift/member/MemberFixture.java    ← 같은 패키지 → protected 접근 가능
+```
+
+Java의 `protected`는 **같은 패키지 내에서 접근 가능**하므로, `src/main`과 `src/test`의 패키지가 동일하면 테스트 코드에서 `protected` 생성자를 호출할 수 있다.
+
+#### 해결 방법 2: 테스트 빌더 패턴
+
+필드가 많거나, 테스트마다 다른 조합의 값이 필요할 때 Builder 패턴이 유용하다:
+
+```java
+public class OrderTestBuilder {
+    private Long id = 1L;
+    private String name = "defaultName";
+
+    public OrderTestBuilder id(Long id) {
+        this.id = id;
+        return this;
+    }
+
+    public OrderTestBuilder name(String name) {
+        this.name = name;
+        return this;
+    }
+
+    public Order build() {
+        Order order = new Order(name);
+        ReflectionTestUtils.setField(order, "id", id);  // Spring 테스트 유틸리티 사용
+        return order;
+    }
+}
+
+// 사용
+Order order = new OrderTestBuilder()
+    .id(100L)
+    .name("catsbi")
+    .build();
+```
+
+빌더 내부에서 `ReflectionTestUtils.setField()`를 사용하더라도, Reflection이 **빌더 한 곳에 캡슐화**되어 있으므로 필드명 변경 시 빌더만 수정하면 된다.
+
+#### 두 접근의 비교
+
+| 기준 | Fixture 팩토리 (본 프로젝트) | 테스트 빌더 패턴 |
+|------|--------------------------|----------------|
+| Reflection 사용 | 완전 제거 | 빌더 내부에 캡슐화 |
+| 엔티티 수정 | `protected` 생성자 추가 필요 | 엔티티 수정 불필요 |
+| 가독성 | 파라미터가 많으면 의미 파악이 어려움 | 메서드 체이닝으로 의도 명확 |
+| 적합한 경우 | 필드가 적은 엔티티 (3~5개) | 필드가 많은 엔티티, 다양한 조합 필요 시 |
+
+### 구현 코드
+
+#### 엔티티 — `protected` 생성자 추가
+
+```java
+// Member.java
+@Entity
+public class Member {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String email;
+
+    protected Member() {}  // JPA 기본 생성자
+
+    public Member(String email) {       // 프로덕션용
+        this.email = email;
+    }
+
+    protected Member(Long id, String email) {  // 테스트 Fixture용
+        this.id = id;
+        this.email = email;
+    }
+}
+
+// Product.java
+@Entity
+public class Product {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    protected Product(Long id, String name, int price, String imageUrl, Category category) {
+        this.id = id;
+        this.name = name;
+        this.price = price;
+        this.imageUrl = imageUrl;
+        this.category = category;
+    }
+}
+
+// Option.java — 동일 패턴
+// Wish.java  — 동일 패턴
+```
+
+#### Fixture 클래스 (테스트 코드)
+
+```java
+// src/test/java/gift/member/MemberFixture.java
+package gift.member;  // Member와 같은 패키지 → protected 접근 가능
+
+public class MemberFixture {
+    public static Member member(Long id, String email) {
+        return new Member(id, email);  // protected 생성자 호출
+    }
+}
+
+// src/test/java/gift/product/ProductFixture.java
+package gift.product;
+
+public class ProductFixture {
+    public static Product product(Long id, String name, int price, String imageUrl, Category category) {
+        return new Product(id, name, price, imageUrl, category);
+    }
+}
+
+// src/test/java/gift/option/OptionFixture.java
+package gift.option;
+
+public class OptionFixture {
+    public static Option option(Long id, Product product, String name, int quantity) {
+        return new Option(id, product, name, quantity);
+    }
+}
+
+// src/test/java/gift/wish/WishFixture.java
+package gift.wish;
+
+public class WishFixture {
+    public static Wish wish(Long id, Long memberId, Product product) {
+        return new Wish(id, memberId, product);
+    }
+}
+```
+
+#### 테스트 코드 변경 (Before → After)
+
+```java
+// Before — Reflection 사용 (OrderServiceTest)
+class OrderServiceTest {
+
+    private void setId(Object entity, Long id) throws Exception {
+        Field field = entity.getClass().getDeclaredField("id");
+        field.setAccessible(true);
+        field.set(entity, id);
+    }
+
+    @Test
+    void create() throws Exception {  // throws Exception 전파
+        Member member = new Member("test@email.com");
+        setId(member, 1L);            // Reflection으로 id 설정
+        member.chargePoint(100000);
+
+        Option option = new Option(createProduct(), "Tall", 100);
+        setId(option, 10L);           // 또 Reflection
+        ...
+    }
+}
+
+// After — Fixture 사용 (OrderServiceTest)
+class OrderServiceTest {
+
+    // setId 메서드 완전 제거, throws Exception 불필요
+
+    @Test
+    void create() {  // throws Exception 제거됨
+        Member member = MemberFixture.member(1L, "test@email.com");
+        member.chargePoint(100000);
+
+        Option option = OptionFixture.option(10L, createProduct(), "Tall", 100);
+        ...
+    }
+}
+```
+
+```java
+// Before — WishServiceTest
+private Product createProduct() throws Exception {
+    Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", CATEGORY);
+    setId(product, 1L);
+    return product;
+}
+
+// After — WishServiceTest
+private Product createProduct() {
+    return ProductFixture.product(1L, "아메리카노", 4500, "http://img.com/coffee.png", CATEGORY);
+}
+```
+
+### 사용 예시
+
+#### 새로운 테스트에서 Fixture 활용
+
+```java
+// 리뷰 기능을 추가할 때, ReviewServiceTest에서 기존 Fixture를 재활용
+@Test
+void createReview() {
+    Member member = MemberFixture.member(1L, "reviewer@email.com");
+    Product product = ProductFixture.product(5L, "라떼", 5000, "http://img.com/latte.png", CATEGORY);
+
+    // Reflection 코드 없이 깔끔하게 테스트 객체 생성
+    ReviewRequest request = new ReviewRequest(product.getId(), "맛있어요", 5);
+    ...
+}
+```
+
+#### 테스트 빌더 패턴으로 확장하는 경우
+
+```java
+// 필드가 많거나 다양한 조합이 필요할 때 빌더 패턴으로 전환 가능
+public class MemberTestBuilder {
+    private Long id = 1L;
+    private String email = "default@email.com";
+    private int point = 0;
+
+    public MemberTestBuilder id(Long id) { this.id = id; return this; }
+    public MemberTestBuilder email(String email) { this.email = email; return this; }
+    public MemberTestBuilder point(int point) { this.point = point; return this; }
+
+    public Member build() {
+        Member member = new Member(id, email);  // protected 생성자
+        if (point > 0) member.chargePoint(point);
+        return member;
+    }
+}
+
+// 사용 — 관심 있는 값만 지정, 나머지는 기본값
+Member member = new MemberTestBuilder()
+    .id(99L)
+    .point(50000)
+    .build();  // email은 "default@email.com"
+```
+
+### 장단점
+
+**장점:**
+- **캡슐화 보존**: Reflection으로 private 필드에 접근하지 않으므로, 엔티티의 접근 제한이 유지된다. 필드명 변경 시 컴파일 에러로 즉시 감지된다.
+- **컴파일 타임 안전성**: 문자열 기반(`"id"`)이 아닌 생성자 파라미터 기반이므로, 타입 불일치나 필드명 변경을 컴파일러가 잡아준다.
+- **`throws Exception` 제거**: Reflection의 checked exception이 사라져 테스트 메서드 시그니처가 깔끔해지고, 실제 비즈니스 예외만 검증할 수 있다.
+- **변경 지점 최소화**: 엔티티 생성자가 변경되면 Fixture 클래스 한 곳만 수정하면 되고, 개별 테스트 코드는 변경 불필요하다.
+- **성능 향상**: Reflection의 런타임 오버헤드(보안 검사 우회, 동적 메서드 호출)가 없어진다.
+
+**단점 또는 트레이드오프:**
+- **엔티티 수정 필요**: `protected` 생성자를 엔티티에 추가해야 하므로, 프로덕션 코드가 테스트를 위해 변경된다. 이것이 설계를 오염시킨다고 보는 시각도 있다.
+- **Fixture 클래스 관리**: 엔티티마다 Fixture 클래스를 만들어야 하므로 파일이 늘어난다. 엔티티 생성자가 바뀌면 Fixture도 함께 수정해야 한다.
+- **패키지 구조 의존**: `protected` 접근을 위해 Fixture가 엔티티와 같은 패키지에 있어야 한다. 패키지 구조가 변경되면 Fixture의 위치도 맞춰야 한다.
+
+### 기대효과
+- Reflection 관련 코드(`setId`, `Field`, `setAccessible`, `throws Exception`)가 모든 테스트에서 완전히 제거되어 테스트 코드의 가독성이 크게 향상된다.
+- 엔티티 필드명이나 생성자가 변경될 때 **컴파일 에러**로 즉시 감지되므로, 런타임 실패를 방지할 수 있다.
+- Fixture 클래스가 객체 생성의 단일 진실 공급원이 되어, 새로운 테스트를 작성할 때 일관된 테스트 데이터를 빠르게 만들 수 있다.
