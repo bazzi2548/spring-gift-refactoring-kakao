@@ -74,8 +74,8 @@ public class Member {
         return email;
     }
 
-    public Password getPassword() {
-        return password;
+    public String getPassword() {
+        return password.getPassword();
     }
 
     public String getKakaoAccessToken() {

@@ -23,8 +23,8 @@ public class MemberService {
             throw new IllegalArgumentException("Email is already registered.");
         }
 
-        String encodedPassword = passwordEncoder.encode(request.password());
-        Member member = memberRepository.save(new Member(request.email(), encodedPassword));
+        Password password = new Password(request.password(), passwordEncoder);
+        Member member = memberRepository.save(new Member(request.email(), password));
         String token = jwtProvider.createToken(member.getEmail());
         return new TokenResponse(token);
     }
