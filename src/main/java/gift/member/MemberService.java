@@ -33,7 +33,7 @@ public class MemberService {
         Member member = memberRepository.findByEmail(request.email())
             .orElseThrow(() -> new IllegalArgumentException("Invalid email or password."));
 
-        if (member.getPassword() == null || !passwordEncoder.matches(request.password(), member.getPassword())) {
+        if (!member.checkPassword(request.password(), passwordEncoder)) {
             throw new IllegalArgumentException("Invalid email or password.");
         }
 

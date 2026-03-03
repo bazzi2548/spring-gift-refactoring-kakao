@@ -49,7 +49,7 @@ public class AdminMemberController {
             return "member/new";
         }
 
-        memberRepository.save(new Member(email, passwordEncoder.encode(password)));
+        memberRepository.save(new Member(email, new Password(password, passwordEncoder)));
         return "redirect:/admin/members";
     }
 
@@ -69,7 +69,7 @@ public class AdminMemberController {
     ) {
         final Member member = memberRepository.findById(id)
             .orElseThrow(() -> new IllegalArgumentException("Member not found. id=" + id));
-        member.update(email, passwordEncoder.encode(password));
+        member.update(email, new Password(password, passwordEncoder));
         memberRepository.save(member);
         return "redirect:/admin/members";
     }
