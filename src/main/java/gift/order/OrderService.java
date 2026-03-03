@@ -1,15 +1,16 @@
 package gift.order;
 
+import java.util.NoSuchElementException;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+
 import gift.member.Member;
 import gift.member.MemberRepository;
 import gift.option.Option;
 import gift.option.OptionRepository;
 import gift.product.Product;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-
-import java.util.NoSuchElementException;
 
 @Service
 public class OrderService {
@@ -35,20 +36,30 @@ public class OrderService {
     }
 
     public OrderResponse create(Member member, OrderRequest request) {
-        Option option = optionRepository.findById(request.optionId())
-            .orElseThrow(() -> new NoSuchElementException("Option not found. id=" + request.optionId()));
-
-        option.subtractQuantity(request.quantity());
-        optionRepository.save(option);
-
-        int price = option.getProduct().getPrice() * request.quantity();
-        member.deductPoint(price);
-        memberRepository.save(member);
+        Option option = findOption(request.optionId());
+        subtractStock(option, request.quantity());
+        deductPoint(member, option, request.quantity());
 
         Order saved = orderRepository.save(new Order(option, member.getId(), request.quantity(), request.message()));
-
         sendKakaoMessageIfPossible(member, saved, option);
+
         return OrderResponse.from(saved);
+    }
+
+    private Option findOption(Long optionId) {
+        return optionRepository.findById(optionId)
+            .orElseThrow(() -> new NoSuchElementException("Option not found. id=" + optionId));
+    }
+
+    private void subtractStock(Option option, int quantity) {
+        option.subtractQuantity(quantity);
+        optionRepository.save(option);
+    }
+
+    private void deductPoint(Member member, Option option, int quantity) {
+        int price = option.getProduct().getPrice() * quantity;
+        member.deductPoint(price);
+        memberRepository.save(member);
     }
 
     private void sendKakaoMessageIfPossible(Member member, Order order, Option option) {
