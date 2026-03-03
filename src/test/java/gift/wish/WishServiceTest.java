@@ -55,7 +55,7 @@ class WishServiceTest {
     }
 
     private Member createMember() throws Exception {
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com");
         setId(member, 1L);
         return member;
     }
@@ -63,7 +63,7 @@ class WishServiceTest {
     @Test
     @DisplayName("인증된 회원을 반환한다")
     void resolveMember() {
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com");
         given(authenticationResolver.extractMember("Bearer token")).willReturn(member);
 
         Member result = wishService.resolveMember("Bearer token");

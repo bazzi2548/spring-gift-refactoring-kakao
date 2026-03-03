@@ -57,7 +57,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("인증된 회원을 반환한다")
     void resolveMember() {
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com");
         given(authenticationResolver.extractMember("Bearer token")).willReturn(member);
 
         Member result = orderService.resolveMember("Bearer token");
@@ -78,7 +78,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("회원의 주문 목록을 조회한다")
     void findByMember() throws Exception {
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com");
         setId(member, 1L);
 
         Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
@@ -99,7 +99,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("주문을 생성한다")
     void create() throws Exception {
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com");
         setId(member, 1L);
         member.chargePoint(100000);
 
@@ -126,7 +126,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("존재하지 않는 옵션으로 주문 시 예외가 발생한다")
     void createOptionNotFound() {
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com");
         OrderRequest request = new OrderRequest(999L, 1, "선물");
 
         given(optionRepository.findById(999L)).willReturn(Optional.empty());
@@ -138,7 +138,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("포인트 부족 시 주문 생성에 실패한다")
     void createInsufficientPoints() throws Exception {
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com");
         setId(member, 1L);
         member.chargePoint(1000); // 포인트 부족
 
@@ -159,7 +159,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("재고보다 많은 수량 주문 시 예외가 발생한다")
     void createExceedingStock() throws Exception {
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com");
         setId(member, 1L);
         member.chargePoint(100000);
 
