@@ -2,6 +2,7 @@ package gift.order;
 
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
+import gift.auth.LoginMember;
 import gift.member.Member;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -29,19 +30,17 @@ public class OrderController {
 
     @GetMapping
     public ResponseEntity<Page<OrderResponse>> getOrders(
-        @RequestHeader("Authorization") String authorization,
+        @LoginMember Member member,
         Pageable pageable
     ) {
-        Member member = orderService.resolveMember(authorization);
         return ResponseEntity.ok(orderService.findByMember(member, pageable));
     }
 
     @PostMapping
     public ResponseEntity<OrderResponse> createOrder(
-        @RequestHeader("Authorization") String authorization,
+        @LoginMember Member member,
         @Valid @RequestBody OrderRequest request
     ) {
-        Member member = orderService.resolveMember(authorization);
         OrderResponse created = orderService.create(member, request);
         return ResponseEntity.created(URI.create("/api/orders/" + created.id()))
             .body(created);

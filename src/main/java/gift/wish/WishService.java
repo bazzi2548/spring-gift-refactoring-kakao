@@ -1,6 +1,5 @@
 package gift.wish;
 
-import gift.auth.AuthenticationResolver;
 import gift.member.Member;
 import gift.product.Product;
 import gift.product.ProductRepository;
@@ -14,24 +13,13 @@ import java.util.NoSuchElementException;
 public class WishService {
     private final WishRepository wishRepository;
     private final ProductRepository productRepository;
-    private final AuthenticationResolver authenticationResolver;
 
     public WishService(
         WishRepository wishRepository,
-        ProductRepository productRepository,
-        AuthenticationResolver authenticationResolver
+        ProductRepository productRepository
     ) {
         this.wishRepository = wishRepository;
         this.productRepository = productRepository;
-        this.authenticationResolver = authenticationResolver;
-    }
-
-    public Member resolveMember(String authorization) {
-        Member member = authenticationResolver.extractMember(authorization);
-        if (member == null) {
-            throw new IllegalStateException("Unauthorized");
-        }
-        return member;
     }
 
     public Page<WishResponse> findByMember(Member member, Pageable pageable) {

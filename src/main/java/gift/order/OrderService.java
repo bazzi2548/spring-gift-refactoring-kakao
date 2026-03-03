@@ -1,6 +1,5 @@
 package gift.order;
 
-import gift.auth.AuthenticationResolver;
 import gift.member.Member;
 import gift.member.MemberRepository;
 import gift.option.Option;
@@ -17,29 +16,18 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final OptionRepository optionRepository;
     private final MemberRepository memberRepository;
-    private final AuthenticationResolver authenticationResolver;
     private final KakaoMessageClient kakaoMessageClient;
 
     public OrderService(
         OrderRepository orderRepository,
         OptionRepository optionRepository,
         MemberRepository memberRepository,
-        AuthenticationResolver authenticationResolver,
         KakaoMessageClient kakaoMessageClient
     ) {
         this.orderRepository = orderRepository;
         this.optionRepository = optionRepository;
         this.memberRepository = memberRepository;
-        this.authenticationResolver = authenticationResolver;
         this.kakaoMessageClient = kakaoMessageClient;
-    }
-
-    public Member resolveMember(String authorization) {
-        Member member = authenticationResolver.extractMember(authorization);
-        if (member == null) {
-            throw new IllegalStateException("Unauthorized");
-        }
-        return member;
     }
 
     public Page<OrderResponse> findByMember(Member member, Pageable pageable) {

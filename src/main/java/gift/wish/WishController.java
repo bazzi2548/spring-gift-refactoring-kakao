@@ -3,6 +3,7 @@ package gift.wish;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
+import gift.auth.LoginMember;
 import gift.member.Member;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -32,19 +33,17 @@ public class WishController {
 
     @GetMapping
     public ResponseEntity<Page<WishResponse>> getWishes(
-        @RequestHeader("Authorization") String authorization,
+        @LoginMember Member member,
         Pageable pageable
     ) {
-        Member member = wishService.resolveMember(authorization);
         return ResponseEntity.ok(wishService.findByMember(member, pageable));
     }
 
     @PostMapping
     public ResponseEntity<WishResponse> addWish(
-        @RequestHeader("Authorization") String authorization,
+        @LoginMember Member member,
         @Valid @RequestBody WishRequest request
     ) {
-        Member member = wishService.resolveMember(authorization);
         boolean isNew = wishService.isNewWish(member, request.productId());
         WishResponse wish = wishService.add(member, request);
 
@@ -56,10 +55,9 @@ public class WishController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> removeWish(
-        @RequestHeader("Authorization") String authorization,
+        @LoginMember Member member,
         @PathVariable Long id
     ) {
-        Member member = wishService.resolveMember(authorization);
         wishService.remove(member, id);
         return ResponseEntity.noContent().build();
     }
