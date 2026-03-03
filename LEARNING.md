@@ -677,7 +677,7 @@ public class ReviewController {
 2. LoginMemberArgumentResolver.resolveArgument() 실행
 3. authenticationResolver.extractMember(null) → null 반환
 4. throw new IllegalStateException("Unauthorized")
-5. Controller의 @ExceptionHandler(IllegalStateException.class) 처리
+5. GlobalExceptionHandler의 @ExceptionHandler(IllegalStateException.class) 처리
 6. → 401 Unauthorized 응답
 ```
 
@@ -714,3 +714,173 @@ After (@LoginMember 패턴):
 - 인증 관련 보일러플레이트가 Controller 3개(Wish, Order, KakaoAuth) × 메서드 2~3개 = 약 7곳에서 제거된다.
 - Service 계층에서 `AuthenticationResolver` 의존성과 `resolveMember()` 메서드가 완전히 제거되어, 비즈니스 로직 테스트가 간결해진다.
 - 새로운 인증 필요 엔드포인트 추가 시 `@LoginMember Member member` 한 줄이면 충분하다.
+
+---
+
+## 8. 전역 예외 처리 (`@RestControllerAdvice`)
+
+### 키워드
+
+| 키워드 | 무엇인가 | 왜 사용하는가 |
+|--------|----------|--------------|
+| `@RestControllerAdvice` | `@ControllerAdvice` + `@ResponseBody`의 조합. 모든 `@RestController`에 적용되는 전역 예외 핸들러, 모델 어트리뷰트, 바인딩 설정 등을 정의할 수 있는 특수 컴포넌트다. | 예외 처리는 대표적인 **횡단관심사**다. 각 Controller마다 동일한 `@ExceptionHandler`를 복사하면 예외-응답 매핑 규칙이 변경될 때 N곳을 수정해야 하고, 누락 시 일관성이 깨진다. `@RestControllerAdvice`로 한 곳에서 관리하면 **예외 처리 정책의 단일 진실 공급원(Single Source of Truth)**이 된다. |
+| `@ExceptionHandler` | 특정 예외 타입이 발생했을 때 호출될 메서드를 지정하는 어노테이션. Controller 내부에 두면 해당 Controller에만, `@ControllerAdvice` 내부에 두면 전역으로 적용된다. | 예외를 try-catch로 잡아 수동으로 `ResponseEntity`를 만드는 대신, **선언적으로 예외-응답 매핑**을 정의할 수 있다. Spring MVC가 예외 발생 시 자동으로 매칭되는 핸들러를 찾아 호출하므로, 비즈니스 코드에서 예외를 던지기만 하면 된다. |
+| `@ControllerAdvice` | `@RestControllerAdvice`의 상위 개념. `@ResponseBody`가 없으므로 뷰(HTML)를 반환하는 Controller에 적합하다. REST API에는 `@RestControllerAdvice`를 사용한다. | MVC 패턴에서 예외 처리, 데이터 바인딩, 모델 어트리뷰트 등 **Controller 횡단 관심사를 AOP 없이 깔끔하게 분리**할 수 있다. `basePackages`나 `assignableTypes`로 적용 범위를 제한할 수도 있다. |
+
+### 구현 원리
+
+#### 문제: 동일한 `@ExceptionHandler`의 반복
+
+변경 전, 6개 Controller에 예외 핸들러가 산재해 있었다:
+
+| 예외 | 응답 | 반복 횟수 | Controller |
+|------|------|----------|------------|
+| `NoSuchElementException` | 404 Not Found | 5곳 | Category, Product, Option, Order, Wish |
+| `IllegalArgumentException` | 400 Bad Request | 4곳 | Product, Option, Order, Member |
+| `IllegalStateException` | 401 Unauthorized | 2곳 | Order, Wish |
+| `SecurityException` | 403 Forbidden | 1곳 | Wish |
+
+총 12개의 `@ExceptionHandler` 메서드가 있었고, 핸들러 본문은 모두 동일했다.
+
+#### Spring MVC의 예외 처리 우선순위
+
+Spring MVC는 예외 발생 시 다음 순서로 핸들러를 탐색한다:
+
+1. **Controller 내부의 `@ExceptionHandler`** — 해당 Controller에서 발생한 예외만 처리
+2. **`@ControllerAdvice`의 `@ExceptionHandler`** — 매칭되는 Controller 범위 내 전역 처리
+3. **Spring 기본 예외 처리** — `DefaultHandlerExceptionResolver` 등
+
+Controller 내부 핸들러가 `@ControllerAdvice`보다 우선하므로, 특정 Controller에서만 다르게 처리해야 할 예외가 있다면 해당 Controller에 `@ExceptionHandler`를 남겨 오버라이드할 수 있다.
+
+### 구현 코드
+
+#### GlobalExceptionHandler (신규)
+
+```java
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(NoSuchElementException.class)
+    public ResponseEntity<Void> handleNotFound(NoSuchElementException e) {
+        return ResponseEntity.notFound().build();
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<String> handleBadRequest(IllegalArgumentException e) {
+        return ResponseEntity.badRequest().body(e.getMessage());
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Void> handleUnauthorized(IllegalStateException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<Void> handleForbidden(SecurityException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+    }
+}
+```
+
+#### Controller 변경 (Before → After)
+
+```java
+// Before — OrderController (핸들러 3개 보유)
+@RestController
+@RequestMapping("/api/orders")
+public class OrderController {
+    ...
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Void> handleUnauthorized(IllegalStateException e) {
+        return ResponseEntity.status(UNAUTHORIZED).build();
+    }
+
+    @ExceptionHandler(NoSuchElementException.class)
+    public ResponseEntity<Void> handleNotFound(NoSuchElementException e) {
+        return ResponseEntity.notFound().build();
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<String> handleIllegalArgument(IllegalArgumentException e) {
+        return ResponseEntity.badRequest().body(e.getMessage());
+    }
+}
+
+// After — OrderController (핸들러 전부 제거, 비즈니스 로직만)
+@RestController
+@RequestMapping("/api/orders")
+public class OrderController {
+    ...
+    // @ExceptionHandler 없음 → GlobalExceptionHandler가 처리
+}
+```
+
+### 사용 예시
+
+#### 새로운 Controller 추가 시
+
+```java
+// 예외 핸들러를 작성할 필요 없이 예외를 던지기만 하면 된다.
+@RestController
+@RequestMapping("/api/reviews")
+public class ReviewController {
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ReviewResponse> getReview(@PathVariable Long id) {
+        // NoSuchElementException → GlobalExceptionHandler가 404로 변환
+        return ResponseEntity.ok(reviewService.findById(id));
+    }
+
+    @PostMapping
+    public ResponseEntity<ReviewResponse> createReview(@RequestBody ReviewRequest request) {
+        // IllegalArgumentException → GlobalExceptionHandler가 400으로 변환
+        return ResponseEntity.ok(reviewService.create(request));
+    }
+}
+```
+
+#### 특정 Controller에서 다르게 처리해야 할 때
+
+```java
+// GlobalExceptionHandler의 기본 동작을 오버라이드할 수 있다.
+// Controller 내부 @ExceptionHandler가 @ControllerAdvice보다 우선한다.
+@RestController
+@RequestMapping("/api/admin")
+public class AdminController {
+
+    // 이 Controller에서는 IllegalArgumentException을 400이 아닌 422로 반환
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<String> handleValidation(IllegalArgumentException e) {
+        return ResponseEntity.unprocessableEntity().body(e.getMessage());
+    }
+}
+```
+
+#### 예외 처리 흐름
+
+```
+1. Service에서 throw new NoSuchElementException("Product not found")
+2. Spring MVC가 해당 Controller에서 @ExceptionHandler(NoSuchElementException.class) 탐색
+3. Controller에 없으면 → @RestControllerAdvice에서 탐색
+4. GlobalExceptionHandler.handleNotFound() 호출
+5. → 404 Not Found 응답
+```
+
+### 장단점
+
+**장점:**
+- **중복 제거**: 12개의 `@ExceptionHandler` 메서드가 4개로 통합되어 코드량이 줄어든다.
+- **일관성 보장**: 예외-응답 매핑이 한 곳에서 관리되므로, 새로운 Controller를 추가할 때 핸들러를 빼먹을 수 없다.
+- **변경 용이**: 에러 응답 형식을 변경할 때 (예: `body(e.getMessage())` → 구조화된 에러 DTO) `GlobalExceptionHandler`만 수정하면 전체 API에 적용된다.
+- **오버라이드 가능**: Controller 내부에 `@ExceptionHandler`를 두면 전역 핸들러보다 우선 적용되므로, 특수한 경우에 유연하게 대응할 수 있다.
+
+**단점 또는 트레이드오프:**
+- **암묵적 처리**: Controller 코드만 보면 예외가 어떤 HTTP 응답으로 변환되는지 바로 보이지 않는다. `GlobalExceptionHandler`의 존재를 알아야 한다.
+- **범위 제어 필요**: `@RestControllerAdvice`는 기본적으로 모든 Controller에 적용된다. Admin Controller와 API Controller의 에러 형식이 다르다면 `basePackages`나 `assignableTypes`로 범위를 분리해야 한다.
+- **예외 타입 충돌**: `IllegalStateException`을 401로 매핑했지만, 인증과 무관한 `IllegalStateException`이 다른 곳에서 발생하면 의도치 않게 401이 반환될 수 있다. 장기적으로는 커스텀 예외 클래스를 정의하는 것이 안전하다.
+
+### 기대효과
+- Controller가 예외 처리 없이 비즈니스 위임만 담당하게 되어 **Controller의 역할이 더 명확**해진다.
+- 에러 응답 형식을 통일하거나 변경할 때 **한 파일만 수정**하면 전체 API에 반영된다.
+- 새로운 예외 타입(예: `AccessDeniedException`)을 추가할 때 `GlobalExceptionHandler`에 핸들러 하나만 추가하면 모든 Controller에서 즉시 처리된다.
