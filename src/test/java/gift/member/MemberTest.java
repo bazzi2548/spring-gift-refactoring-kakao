@@ -21,10 +21,14 @@ class MemberTest {
         }
     };
 
+    private Member createMember(String email, String password) {
+        return new Member(email, new Password(password, NO_OP_ENCODER));
+    }
+
     @Test
     @DisplayName("이메일과 비밀번호로 회원을 생성한다")
     void createWithEmailAndPassword() {
-        Member member = new Member("test@email.com", new Password("password", NO_OP_ENCODER));
+        Member member = createMember("test@email.com", "password");
 
         assertThat(member.getEmail()).isEqualTo("test@email.com");
         assertThat(member.getPassword()).isEqualTo("password");
@@ -43,7 +47,7 @@ class MemberTest {
     @Test
     @DisplayName("회원 정보를 수정한다")
     void update() {
-        Member member = new Member("old@email.com", new Password("oldpass", NO_OP_ENCODER));
+        Member member = createMember("old@email.com", "oldpass");
 
         member.update("new@email.com", new Password("newpass", NO_OP_ENCODER));
 
@@ -54,7 +58,7 @@ class MemberTest {
     @Test
     @DisplayName("카카오 액세스 토큰을 갱신한다")
     void updateKakaoAccessToken() {
-        Member member = new Member("test@email.com", new Password("password", NO_OP_ENCODER));
+        Member member = createMember("test@email.com", "password");
 
         member.updateKakaoAccessToken("kakao-token-123");
 
@@ -64,7 +68,7 @@ class MemberTest {
     @Test
     @DisplayName("포인트를 충전한다")
     void chargePoint() {
-        Member member = new Member("test@email.com", new Password("password", NO_OP_ENCODER));
+        Member member = createMember("test@email.com", "password");
 
         member.chargePoint(1000);
 
@@ -74,7 +78,7 @@ class MemberTest {
     @Test
     @DisplayName("포인트를 여러 번 충전하면 누적된다")
     void chargePointAccumulates() {
-        Member member = new Member("test@email.com", new Password("password", NO_OP_ENCODER));
+        Member member = createMember("test@email.com", "password");
 
         member.chargePoint(1000);
         member.chargePoint(500);
@@ -85,7 +89,7 @@ class MemberTest {
     @Test
     @DisplayName("0 이하 금액 충전 시 예외가 발생한다")
     void chargePointWithZeroOrNegativeThrows() {
-        Member member = new Member("test@email.com", new Password("password", NO_OP_ENCODER));
+        Member member = createMember("test@email.com", "password");
 
         assertThatThrownBy(() -> member.chargePoint(0))
             .isInstanceOf(IllegalArgumentException.class);
@@ -96,7 +100,7 @@ class MemberTest {
     @Test
     @DisplayName("포인트를 차감한다")
     void deductPoint() {
-        Member member = new Member("test@email.com", new Password("password", NO_OP_ENCODER));
+        Member member = createMember("test@email.com", "password");
         member.chargePoint(1000);
 
         member.deductPoint(300);
@@ -107,7 +111,7 @@ class MemberTest {
     @Test
     @DisplayName("보유 포인트보다 많은 금액 차감 시 예외가 발생한다")
     void deductPointExceedingBalanceThrows() {
-        Member member = new Member("test@email.com", new Password("password", NO_OP_ENCODER));
+        Member member = createMember("test@email.com", "password");
         member.chargePoint(100);
 
         assertThatThrownBy(() -> member.deductPoint(200))
@@ -118,7 +122,7 @@ class MemberTest {
     @Test
     @DisplayName("0 이하 금액 차감 시 예외가 발생한다")
     void deductPointWithZeroOrNegativeThrows() {
-        Member member = new Member("test@email.com", new Password("password", NO_OP_ENCODER));
+        Member member = createMember("test@email.com", "password");
 
         assertThatThrownBy(() -> member.deductPoint(0))
             .isInstanceOf(IllegalArgumentException.class);
