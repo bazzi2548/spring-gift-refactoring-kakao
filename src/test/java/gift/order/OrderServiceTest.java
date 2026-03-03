@@ -1,6 +1,5 @@
 package gift.order;
 
-import gift.auth.AuthenticationResolver;
 import gift.category.Category;
 import gift.member.Member;
 import gift.member.MemberRepository;
@@ -40,9 +39,6 @@ class OrderServiceTest {
     private MemberRepository memberRepository;
 
     @Mock
-    private AuthenticationResolver authenticationResolver;
-
-    @Mock
     private KakaoMessageClient kakaoMessageClient;
 
     @InjectMocks
@@ -52,27 +48,6 @@ class OrderServiceTest {
         Field field = entity.getClass().getDeclaredField("id");
         field.setAccessible(true);
         field.set(entity, id);
-    }
-
-    @Test
-    @DisplayName("인증된 회원을 반환한다")
-    void resolveMember() {
-        Member member = new Member("test@email.com");
-        given(authenticationResolver.extractMember("Bearer token")).willReturn(member);
-
-        Member result = orderService.resolveMember("Bearer token");
-
-        assertThat(result.getEmail()).isEqualTo("test@email.com");
-    }
-
-    @Test
-    @DisplayName("인증 실패 시 예외가 발생한다")
-    void resolveMemberUnauthorized() {
-        given(authenticationResolver.extractMember("Bearer invalid")).willReturn(null);
-
-        assertThatThrownBy(() -> orderService.resolveMember("Bearer invalid"))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("Unauthorized");
     }
 
     @Test

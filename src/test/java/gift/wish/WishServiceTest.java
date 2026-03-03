@@ -1,6 +1,5 @@
 package gift.wish;
 
-import gift.auth.AuthenticationResolver;
 import gift.category.Category;
 import gift.member.Member;
 import gift.product.Product;
@@ -35,9 +34,6 @@ class WishServiceTest {
     @Mock
     private ProductRepository productRepository;
 
-    @Mock
-    private AuthenticationResolver authenticationResolver;
-
     @InjectMocks
     private WishService wishService;
 
@@ -58,27 +54,6 @@ class WishServiceTest {
         Member member = new Member("test@email.com");
         setId(member, 1L);
         return member;
-    }
-
-    @Test
-    @DisplayName("인증된 회원을 반환한다")
-    void resolveMember() {
-        Member member = new Member("test@email.com");
-        given(authenticationResolver.extractMember("Bearer token")).willReturn(member);
-
-        Member result = wishService.resolveMember("Bearer token");
-
-        assertThat(result.getEmail()).isEqualTo("test@email.com");
-    }
-
-    @Test
-    @DisplayName("인증 실패 시 예외가 발생한다")
-    void resolveMemberUnauthorized() {
-        given(authenticationResolver.extractMember("Bearer invalid")).willReturn(null);
-
-        assertThatThrownBy(() -> wishService.resolveMember("Bearer invalid"))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("Unauthorized");
     }
 
     @Test
