@@ -23,6 +23,12 @@ public class Wish {
     protected Wish() {
     }
 
+    protected Wish(Long id, Long memberId, Product product) {
+        this.id = id;
+        this.memberId = memberId;
+        this.product = product;
+    }
+
     public Wish(Long memberId, Product product) {
         this.memberId = memberId;
         this.product = product;

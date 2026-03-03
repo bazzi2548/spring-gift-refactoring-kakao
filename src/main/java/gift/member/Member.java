@@ -1,9 +1,11 @@
 package gift.member;
 
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * Represents a registered member.
@@ -19,7 +21,8 @@ public class Member {
 
     private String email;
 
-    private String password;
+    @Embedded
+    private Password password;
 
     private String kakaoAccessToken;
 
@@ -28,7 +31,12 @@ public class Member {
     protected Member() {
     }
 
-    public Member(String email, String password) {
+    protected Member(Long id, String email) {
+        this.id = id;
+        this.email = email;
+    }
+
+    public Member(String email, Password password) {
         this.email = email;
         this.password = password;
     }
@@ -37,7 +45,7 @@ public class Member {
         this.email = email;
     }
 
-    public void update(String email, String password) {
+    public void update(String email, Password password) {
         this.email = email;
         this.password = password;
     }
@@ -72,8 +80,18 @@ public class Member {
         return email;
     }
 
+    public boolean checkPassword(String rawPassword, PasswordEncoder encoder) {
+        if (password == null) {
+            return false;
+        }
+        return password.matches(rawPassword, encoder);
+    }
+
     public String getPassword() {
-        return password;
+        if (password == null) {
+            return null;
+        }
+        return password.getPassword();
     }
 
     public String getKakaoAccessToken() {

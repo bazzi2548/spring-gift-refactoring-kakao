@@ -30,6 +30,13 @@ public class Option {
     protected Option() {
     }
 
+    protected Option(Long id, Product product, String name, int quantity) {
+        this.id = id;
+        this.product = product;
+        this.name = name;
+        this.quantity = quantity;
+    }
+
     public Option(Product product, String name, int quantity) {
         this.product = product;
         this.name = name;
