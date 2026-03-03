@@ -1176,3 +1176,175 @@ Member member = new MemberTestBuilder()
 - Reflection 관련 코드(`setId`, `Field`, `setAccessible`, `throws Exception`)가 모든 테스트에서 완전히 제거되어 테스트 코드의 가독성이 크게 향상된다.
 - 엔티티 필드명이나 생성자가 변경될 때 **컴파일 에러**로 즉시 감지되므로, 런타임 실패를 방지할 수 있다.
 - Fixture 클래스가 객체 생성의 단일 진실 공급원이 되어, 새로운 테스트를 작성할 때 일관된 테스트 데이터를 빠르게 만들 수 있다.
+
+---
+
+## 10. 메서드 추상화 수준 통일 (책임 분리)
+
+### 키워드
+
+| 키워드 | 무엇인가 | 왜 사용하는가 |
+|--------|----------|--------------|
+| 단일 추상화 수준 원칙 (SLAP) | 하나의 메서드 안에 있는 코드가 모두 **동일한 추상화 수준**에서 동작해야 한다는 원칙. 고수준 오케스트레이션과 저수준 구현이 섞이면 안 된다. | 추상화 수준이 섞이면 메서드를 읽을 때 **전체 흐름과 세부 구현을 동시에 파악**해야 한다. 고수준 단계만 나열하면 메서드가 "목차"처럼 읽혀서, 전체 흐름을 빠르게 이해하고 세부 사항은 필요할 때만 들어가볼 수 있다. |
+| 단일 책임 원칙 (SRP) | 클래스나 메서드가 **하나의 변경 이유**만 가져야 한다는 원칙. 여러 책임이 섞이면 한 책임의 변경이 다른 책임에 영향을 준다. | 재고 차감 로직이 바뀌어도 포인트 차감이나 메시지 발송에 영향을 주지 않아야 한다. 책임이 분리되어 있으면 **변경의 영향 범위가 해당 메서드로 한정**되어 사이드이펙트를 줄일 수 있다. |
+| 메서드 추출 (Extract Method) | 긴 메서드에서 특정 동작을 별도 메서드로 분리하는 리팩토링 기법. 원래 메서드에는 추출한 메서드의 호출만 남긴다. | 메서드가 길면 **테스트 시 모든 분기를 한 번에 검증**해야 하고, 한 부분의 변경이 다른 부분에 영향을 줄 위험이 있다. 추출하면 각 단계를 독립적으로 이해하고 테스트할 수 있다. |
+| 이펙티브 자바 (Effective Java) | Joshua Bloch의 Java 베스트 프랙티스 모음집. "메서드는 한 가지 작업만 수행해야 한다"(Item 2 등), "API 설계 시 최소한의 책임을 부여하라" 등의 원칙을 제시한다. | 메서드가 여러 작업을 수행하면 **재사용이 어렵고, 이해하기 힘들고, 테스트하기 어렵다**. 한 가지 작업만 수행하는 메서드는 이름만으로 역할이 드러나고, 조합하여 더 복잡한 동작을 만들 수 있다. |
+
+### 구현 원리
+
+#### 문제: 하나의 메서드가 모든 세부 구현을 직접 처리
+
+변경 전 `OrderService.create()`는 옵션 조회, 재고 차감, 포인트 차감, 주문 저장, 메시지 발송의 **"어떻게(how)"를 모두 직접** 처리하고 있었다:
+
+```java
+// Before — 추상화 수준이 섞여있는 create()
+public OrderResponse create(Member member, OrderRequest request) {
+    Option option = optionRepository.findById(request.optionId())    // 저수준: Repository 직접 호출
+        .orElseThrow(() -> new NoSuchElementException(...));
+
+    option.subtractQuantity(request.quantity());                     // 저수준: 재고 차감 구현
+    optionRepository.save(option);                                   // 저수준: 영속화
+
+    int price = option.getProduct().getPrice() * request.quantity(); // 저수준: 가격 계산
+    member.deductPoint(price);                                       // 저수준: 포인트 차감
+    memberRepository.save(member);                                   // 저수준: 영속화
+
+    Order saved = orderRepository.save(new Order(...));              // 고수준: 주문 저장
+    sendKakaoMessageIfPossible(member, saved, option);               // 고수준: 메시지 발송
+    return OrderResponse.from(saved);
+}
+```
+
+이 상태에서 발생하는 문제:
+1. **테스트 복잡도**: 하나의 테스트에서 옵션 조회, 재고 차감, 포인트 차감, 주문 저장, 메시지 발송을 모두 Mock/검증해야 한다.
+2. **가독성**: 메서드를 읽을 때 "전체 흐름"과 "Repository 호출 세부사항"을 동시에 파악해야 한다.
+3. **변경 영향**: 재고 차감 방식이 바뀌면 `create()` 메서드 자체를 수정해야 하고, 다른 단계에 영향을 줄 위험이 있다.
+
+#### 해결: 각 단계를 private 메서드로 추출
+
+`create()`는 **"무엇을(what)"** 하는지만 보여주는 오케스트레이션 메서드가 된다.
+각 단계의 **"어떻게(how)"**는 private 메서드 안에 캡슐화한다.
+
+### 구현 코드
+
+#### OrderService (Before → After)
+
+```java
+// After — 추상화 수준이 통일된 create()
+public OrderResponse create(Member member, OrderRequest request) {
+    Option option = findOption(request.optionId());          // 무엇을: 옵션 찾기
+    subtractStock(option, request.quantity());                // 무엇을: 재고 차감
+    deductPoint(member, option, request.quantity());          // 무엇을: 포인트 차감
+
+    Order saved = orderRepository.save(new Order(option, member.getId(), request.quantity(), request.message()));
+    sendKakaoMessageIfPossible(member, saved, option);
+
+    return OrderResponse.from(saved);
+}
+
+// "어떻게"는 private 메서드에 캡슐화
+private Option findOption(Long optionId) {
+    return optionRepository.findById(optionId)
+        .orElseThrow(() -> new NoSuchElementException("Option not found. id=" + optionId));
+}
+
+private void subtractStock(Option option, int quantity) {
+    option.subtractQuantity(quantity);
+    optionRepository.save(option);
+}
+
+private void deductPoint(Member member, Option option, int quantity) {
+    int price = option.getProduct().getPrice() * quantity;
+    member.deductPoint(price);
+    memberRepository.save(member);
+}
+```
+
+#### OptionService — 중복 조회 통합 + 검증 분리
+
+```java
+// Before — create()에 조회·검증·저장이 뒤섞임
+public OptionResponse create(Long productId, OptionRequest request) {
+    validateOptionName(request.name());
+    Product product = productRepository.findById(productId)
+        .orElseThrow(() -> new NoSuchElementException(...));  // 조회
+    if (optionRepository.existsByProductIdAndName(productId, request.name())) {
+        throw new IllegalArgumentException("이미 존재하는 옵션명입니다.");  // 검증
+    }
+    Option saved = optionRepository.save(new Option(...));
+    return OptionResponse.from(saved);
+}
+
+// After — 단계별 분리
+public OptionResponse create(Long productId, OptionRequest request) {
+    validateOptionName(request.name());
+    Product product = findProduct(productId);
+    validateDuplicateName(productId, request.name());
+    Option saved = optionRepository.save(new Option(product, request.name(), request.quantity()));
+    return OptionResponse.from(saved);
+}
+
+public void delete(Long productId, Long optionId) {
+    findProduct(productId);
+    validateNotLastOption(productId);
+    Option option = findOption(optionId, productId);
+    optionRepository.delete(option);
+}
+
+// 3개 public 메서드에서 재사용되는 공통 조회
+private Product findProduct(Long productId) {
+    return productRepository.findById(productId)
+        .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + productId));
+}
+
+private void validateDuplicateName(Long productId, String name) { ... }
+private void validateNotLastOption(Long productId) { ... }
+```
+
+### 사용 예시
+
+#### create()를 읽을 때의 차이
+
+```
+Before:
+  "옵션을 Repository에서 찾아서... 없으면 예외를 던지고...
+   수량을 빼고... save를 호출하고...
+   가격을 계산하고... 포인트를 빼고... save를 호출하고..."
+  → 세부 구현을 한 줄씩 따라가야 전체 흐름을 파악할 수 있다.
+
+After:
+  "옵션 찾기 → 재고 차감 → 포인트 차감 → 주문 저장 → 메시지 발송"
+  → 메서드명만 읽으면 전체 흐름이 보인다. 세부 사항은 필요할 때 private 메서드를 확인하면 된다.
+```
+
+#### 재고 차감 방식이 변경될 때
+
+```
+Before: create() 내부의 41~42줄을 직접 수정 → 주변 코드에 영향 가능성
+
+After: subtractStock() 메서드만 수정 → create()의 다른 단계에 영향 없음
+  예) 재고 차감 시 이력을 남기는 요구사항이 추가되면:
+  private void subtractStock(Option option, int quantity) {
+      option.subtractQuantity(quantity);
+      optionRepository.save(option);
+      stockHistoryRepository.save(new StockHistory(option, quantity));  // 추가
+  }
+```
+
+### 장단점
+
+**장점:**
+- **가독성**: public 메서드가 "목차"처럼 읽혀서, 전체 비즈니스 흐름을 한눈에 파악할 수 있다.
+- **변경 격리**: 각 단계의 구현이 private 메서드에 캡슐화되어, 한 단계를 수정해도 다른 단계에 영향을 주지 않는다.
+- **중복 제거**: `findProduct()`처럼 여러 public 메서드에서 반복되던 조회 로직이 하나로 통합된다.
+- **테스트 의도 명확화**: 테스트에서 Mock 설정이 어떤 단계를 위한 것인지 메서드명으로 바로 알 수 있다.
+
+**단점 또는 트레이드오프:**
+- **메서드 수 증가**: private 메서드가 늘어나 클래스가 길어질 수 있다. 단계가 더 복잡해지면 별도 Service 클래스로 분리하는 것도 고려해야 한다.
+- **간접 참조**: 세부 구현을 보려면 private 메서드로 이동해야 한다. 단순한 로직까지 과도하게 추출하면 오히려 가독성이 떨어질 수 있다.
+- **디버깅**: 스택 트레이스가 한 단계 더 깊어진다. 하지만 메서드명이 명확하면 오히려 디버깅에 도움이 된다.
+
+### 기대효과
+- `create()` 메서드가 비즈니스 흐름의 "목차" 역할을 하여, 새로운 개발자가 코드를 처음 볼 때 전체 주문 프로세스를 빠르게 이해할 수 있다.
+- 요구사항 변경 시(예: 재고 차감 정책 변경, 포인트 계산 방식 변경) 해당 private 메서드만 수정하면 되므로 변경 범위가 최소화된다.
+- `OptionService`에서 3곳에 중복되던 `productRepository.findById().orElseThrow()`가 `findProduct()` 하나로 통합되어 에러 메시지 변경 시 1곳만 수정하면 된다.
