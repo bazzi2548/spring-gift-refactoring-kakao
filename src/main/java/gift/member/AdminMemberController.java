@@ -1,5 +1,6 @@
 package gift.member;
 
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,9 +19,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 @RequestMapping("/admin/members")
 public class AdminMemberController {
     private final MemberRepository memberRepository;
+    private final BCryptPasswordEncoder passwordEncoder;
 
-    public AdminMemberController(MemberRepository memberRepository) {
+    public AdminMemberController(MemberRepository memberRepository,
+                                 BCryptPasswordEncoder passwordEncoder) {
         this.memberRepository = memberRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @GetMapping
@@ -45,7 +49,7 @@ public class AdminMemberController {
             return "member/new";
         }
 
-        memberRepository.save(new Member(email, password));
+        memberRepository.save(new Member(email, passwordEncoder.encode(password)));
         return "redirect:/admin/members";
     }
 
@@ -65,7 +69,7 @@ public class AdminMemberController {
     ) {
         final Member member = memberRepository.findById(id)
             .orElseThrow(() -> new IllegalArgumentException("Member not found. id=" + id));
-        member.update(email, password);
+        member.update(email, passwordEncoder.encode(password));
         memberRepository.save(member);
         return "redirect:/admin/members";
     }
