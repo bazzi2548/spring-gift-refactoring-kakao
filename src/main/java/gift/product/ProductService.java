@@ -1,13 +1,14 @@
 package gift.product;
 
-import gift.category.Category;
-import gift.category.CategoryRepository;
+import java.util.List;
+import java.util.NoSuchElementException;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.NoSuchElementException;
+import gift.category.Category;
+import gift.category.CategoryRepository;
 
 @Service
 public class ProductService {
@@ -30,7 +31,7 @@ public class ProductService {
     }
 
     public ProductResponse create(ProductRequest request) {
-        validateName(request.name());
+        validateProductName(request.name());
 
         Category category = categoryRepository.findById(request.categoryId())
             .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + request.categoryId()));
@@ -40,7 +41,7 @@ public class ProductService {
     }
 
     public ProductResponse update(Long id, ProductRequest request) {
-        validateName(request.name());
+        validateProductName(request.name());
 
         Category category = categoryRepository.findById(request.categoryId())
             .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + request.categoryId()));
@@ -57,7 +58,7 @@ public class ProductService {
         productRepository.deleteById(id);
     }
 
-    private void validateName(String name) {
+    private void validateProductName(String name) {
         List<String> errors = ProductNameValidator.validate(name);
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException(String.join(", ", errors));

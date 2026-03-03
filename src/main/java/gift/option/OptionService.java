@@ -1,11 +1,12 @@
 package gift.option;
 
-import gift.product.Product;
-import gift.product.ProductRepository;
-import org.springframework.stereotype.Service;
-
 import java.util.List;
 import java.util.NoSuchElementException;
+
+import org.springframework.stereotype.Service;
+
+import gift.product.Product;
+import gift.product.ProductRepository;
 
 @Service
 public class OptionService {
@@ -26,7 +27,7 @@ public class OptionService {
     }
 
     public OptionResponse create(Long productId, OptionRequest request) {
-        validateName(request.name());
+        validateOptionName(request.name());
 
         Product product = productRepository.findById(productId)
             .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + productId));
@@ -55,7 +56,7 @@ public class OptionService {
         optionRepository.delete(option);
     }
 
-    private void validateName(String name) {
+    private void validateOptionName(String name) {
         List<String> errors = OptionNameValidator.validate(name);
         if (!errors.isEmpty()) {
             throw new IllegalArgumentException(String.join(", ", errors));
