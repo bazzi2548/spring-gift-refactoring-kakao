@@ -1,7 +1,7 @@
 package gift.acceptance;
 
-import static io.restassured.RestAssured.*;
-import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment.*;
+import static io.restassured.RestAssured.given;
+import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.context.SpringBootTest;

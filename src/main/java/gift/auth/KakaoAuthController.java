@@ -1,6 +1,6 @@
 package gift.auth;
 
-import static org.springframework.http.HttpStatus.*;
+import static org.springframework.http.HttpStatus.FOUND;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
