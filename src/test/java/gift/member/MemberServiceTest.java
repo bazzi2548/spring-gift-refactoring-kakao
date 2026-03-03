@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.util.Optional;
 
@@ -26,6 +27,9 @@ class MemberServiceTest {
     @Mock
     private JwtProvider jwtProvider;
 
+    @Mock
+    private BCryptPasswordEncoder passwordEncoder;
+
     @InjectMocks
     private MemberService memberService;
 
@@ -33,8 +37,9 @@ class MemberServiceTest {
     @DisplayName("회원 가입에 성공하면 토큰을 반환한다")
     void registerSuccess() {
         MemberRequest request = new MemberRequest("test@email.com", "password");
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com", "hashed");
 
+        given(passwordEncoder.encode("password")).willReturn("hashed");
         given(memberRepository.existsByEmail("test@email.com")).willReturn(false);
         given(memberRepository.save(any(Member.class))).willReturn(member);
         given(jwtProvider.createToken("test@email.com")).willReturn("jwt-token");
@@ -60,9 +65,10 @@ class MemberServiceTest {
     @DisplayName("올바른 정보로 로그인하면 토큰을 반환한다")
     void loginSuccess() {
         MemberRequest request = new MemberRequest("test@email.com", "password");
-        Member member = new Member("test@email.com", "password");
+        Member member = new Member("test@email.com", "hashed");
 
         given(memberRepository.findByEmail("test@email.com")).willReturn(Optional.of(member));
+        given(passwordEncoder.matches("password", "hashed")).willReturn(true);
         given(jwtProvider.createToken("test@email.com")).willReturn("jwt-token");
 
         TokenResponse response = memberService.login(request);
@@ -86,9 +92,10 @@ class MemberServiceTest {
     @DisplayName("비밀번호가 틀리면 예외가 발생한다")
     void loginWrongPassword() {
         MemberRequest request = new MemberRequest("test@email.com", "wrong");
-        Member member = new Member("test@email.com", "correct");
+        Member member = new Member("test@email.com", "hashed");
 
         given(memberRepository.findByEmail("test@email.com")).willReturn(Optional.of(member));
+        given(passwordEncoder.matches("wrong", "hashed")).willReturn(false);
 
         assertThatThrownBy(() -> memberService.login(request))
             .isInstanceOf(IllegalArgumentException.class)
