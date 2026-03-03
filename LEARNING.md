@@ -1348,3 +1348,162 @@ After: subtractStock() 메서드만 수정 → create()의 다른 단계에 영�
 - `create()` 메서드가 비즈니스 흐름의 "목차" 역할을 하여, 새로운 개발자가 코드를 처음 볼 때 전체 주문 프로세스를 빠르게 이해할 수 있다.
 - 요구사항 변경 시(예: 재고 차감 정책 변경, 포인트 계산 방식 변경) 해당 private 메서드만 수정하면 되므로 변경 범위가 최소화된다.
 - `OptionService`에서 3곳에 중복되던 `productRepository.findById().orElseThrow()`가 `findProduct()` 하나로 통합되어 에러 메시지 변경 시 1곳만 수정하면 된다.
+
+---
+
+## 11. 중복 코드 통합과 미래 분기 대응 전략 (DRY vs YAGNI)
+
+### 키워드
+
+| 키워드 | 무엇인가 | 왜 사용하는가 |
+|--------|----------|--------------|
+| DRY (Don't Repeat Yourself) | 동일한 지식이나 로직이 시스템 내에서 **단 하나의 명확한 표현**만 가져야 한다는 원칙. 코드 중복뿐 아니라 로직·규칙·의도의 중복도 포함한다. | 동일 로직이 여러 곳에 존재하면 변경 시 **모든 곳을 동기화**해야 한다. 하나라도 빠뜨리면 버그가 된다. 한 곳으로 통합하면 변경 지점이 1곳이 되어 일관성이 보장된다. |
+| YAGNI (You Aren't Gonna Need It) | **현재 필요하지 않은 기능이나 구조를 미리 만들지 않는다**는 원칙. XP(Extreme Programming)에서 유래했다. | 미래에 필요할 **수도** 있는 코드를 미리 만들면, 그 예측이 틀렸을 때 불필요한 복잡성만 남는다. 실무에서 예측이 맞을 확률은 낮고, 맞더라도 시점과 형태가 다른 경우가 대부분이다. |
+| 추측 기반 설계 (Speculative Generality) | 미래의 요구사항을 **추측하여 미리** 확장 포인트나 추상화를 만들어두는 설계. Martin Fowler가 정의한 코드 냄새(Code Smell) 중 하나다. | 추측이 맞으면 시간을 절약하지만, 대부분 **사용되지 않는 추상화**가 남아 코드를 복잡하게 만든다. "나중에 달라질 수 있으니 미리 분리하자"는 전형적인 추측 기반 설계다. |
+
+### 구현 원리
+
+#### 문제: 중복 코드를 합칠까, 미래를 대비해 분리할까?
+
+`ProductService`에서 `create()`와 `update()` 모두 카테고리를 조회하는 동일한 코드를 갖고 있었다:
+
+```java
+// create()
+Category category = categoryRepository.findById(request.categoryId())
+    .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + request.categoryId()));
+
+// update() — 완전히 동일한 코드
+Category category = categoryRepository.findById(request.categoryId())
+    .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + request.categoryId()));
+```
+
+이때 드는 고민: "나중에 `create()`에서만 카테고리 변경 이력을 남기거나, `update()`에서만 권한 검증을 추가하면 어떡하지? 미리 분리해두는 게 낫지 않을까?"
+
+#### 판단 기준: 현재 같으면 합친다
+
+```
+"변경을 예측하지 말고, 변경에 대응하기 쉬운 구조를 유지하라"
+```
+
+핵심 원칙:
+1. **현재 동일한 코드** → 합친다 (DRY)
+2. **미래에 달라질 수도 있음** → 합친 채로 둔다 (YAGNI)
+3. **실제로 요구사항이 분기됨** → 그때 인라인하고 분리한다
+
+#### 비용 비교
+
+```
+방법 A: 지금 합치고, 나중에 분기 필요 시 인라인
+  → findCategory()를 create()와 update()에 인라인 후 각각 수정
+  → 비용: 5분 (일회성)
+
+방법 B: 미래를 대비해 미리 분리
+  → 중복 코드 2곳을 계속 동기화하며 유지
+  → 비용: 매번 수정할 때마다 2곳 확인 (지속적)
+```
+
+방법 A가 압도적으로 저렴하다. 합치는 것도, 다시 인라인하는 것도 몇 분이면 되지만, 중복 코드를 동기화하며 유지하는 건 지속적인 비용이다.
+
+#### 분기 신호를 감지하는 방법
+
+미래를 예측하지 않고, **실제 요구사항이 분기의 신호**가 된다:
+
+- "생성 시에는 카테고리 변경 이력을 남겨주세요" → 그때 `create()`에만 이력 로직 추가
+- "수정 시에는 카테고리 권한 검증이 필요합니다" → 그때 `update()`에만 검증 추가
+
+코드가 아니라 **비즈니스가 알려준다.**
+
+### 구현 코드
+
+#### ProductService (Before → After)
+
+```java
+// Before — create()와 update()에서 카테고리 조회 중복
+public ProductResponse create(ProductRequest request) {
+    validateProductName(request.name());
+    Category category = categoryRepository.findById(request.categoryId())
+        .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + request.categoryId()));
+    Product saved = productRepository.save(request.toEntity(category));
+    return ProductResponse.from(saved);
+}
+
+public ProductResponse update(Long id, ProductRequest request) {
+    validateProductName(request.name());
+    Category category = categoryRepository.findById(request.categoryId())
+        .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + request.categoryId()));
+    Product product = productRepository.findById(id)
+        .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + id));
+    ...
+}
+
+// After — 공통 조회를 private 메서드로 통합
+public ProductResponse create(ProductRequest request) {
+    validateProductName(request.name());
+    Category category = findCategory(request.categoryId());
+    Product saved = productRepository.save(request.toEntity(category));
+    return ProductResponse.from(saved);
+}
+
+public ProductResponse update(Long id, ProductRequest request) {
+    validateProductName(request.name());
+    Category category = findCategory(request.categoryId());
+    Product product = findProduct(id);
+    ...
+}
+
+private Category findCategory(Long categoryId) {
+    return categoryRepository.findById(categoryId)
+        .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + categoryId));
+}
+
+private Product findProduct(Long id) {
+    return productRepository.findById(id)
+        .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + id));
+}
+```
+
+### 사용 예시
+
+#### 분기가 발생했을 때의 대응 흐름
+
+```
+요구사항: "상품 수정 시 카테고리 변경 이력을 남겨주세요"
+
+Step 1: findCategory()를 update()에 인라인
+  public ProductResponse update(Long id, ProductRequest request) {
+      ...
+      Category category = categoryRepository.findById(request.categoryId())
+          .orElseThrow(...);
+      ...
+  }
+
+Step 2: update()에만 이력 로직 추가
+  public ProductResponse update(Long id, ProductRequest request) {
+      ...
+      Category category = categoryRepository.findById(request.categoryId())
+          .orElseThrow(...);
+      categoryChangeHistoryRepository.save(
+          new CategoryChangeHistory(product, oldCategory, category));  // 추가
+      ...
+  }
+
+Step 3: create()는 그대로 findCategory() 사용 — 변경 없음
+```
+
+대응 비용: `findCategory()` 인라인 + 이력 로직 추가 = **단순 작업**, 구조를 미리 분리해뒀을 때와 결과적으로 동일하다.
+
+### 장단점
+
+**장점:**
+- **현재 코드가 단순해진다**: 중복이 제거되어 유지보수가 쉽다.
+- **불필요한 복잡성 방지**: 일어나지 않을 수도 있는 미래를 위한 코드가 없다.
+- **분리 비용이 저렴하다**: 실제로 분기가 필요해지면 인라인 후 수정하면 되는데, 이 비용은 매우 낮다.
+
+**단점 또는 트레이드오프:**
+- **분기 시 작업 필요**: 실제로 요구사항이 갈라지면 인라인 + 수정 작업이 필요하다. 다만 이 비용은 미리 분리해둔 코드의 지속적 관리 비용보다 낮다.
+- **팀 합의 필요**: "언제 합치고 언제 분리하는가"에 대한 기준이 팀 내에 공유되어야 한다. 기준 없이 각자 판단하면 코드 스타일이 불일치한다.
+
+### 기대효과
+- "미래에 달라질 수 있으니까"라는 이유로 중복을 방치하는 습관을 방지할 수 있다.
+- DRY와 YAGNI의 균형점을 명확히 하여, 팀 내에서 "합칠까 말까" 논의에 일관된 판단 기준을 제공한다.
+- `ProductService`의 `findCategory()`, `findProduct()` 통합으로 에러 메시지 변경 시 1곳만 수정하면 된다.

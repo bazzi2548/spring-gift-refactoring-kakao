@@ -25,30 +25,20 @@ public class ProductService {
     }
 
     public ProductResponse findById(Long id) {
-        Product product = productRepository.findById(id)
-            .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + id));
-        return ProductResponse.from(product);
+        return ProductResponse.from(findProduct(id));
     }
 
     public ProductResponse create(ProductRequest request) {
         validateProductName(request.name());
-
-        Category category = categoryRepository.findById(request.categoryId())
-            .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + request.categoryId()));
-
+        Category category = findCategory(request.categoryId());
         Product saved = productRepository.save(request.toEntity(category));
         return ProductResponse.from(saved);
     }
 
     public ProductResponse update(Long id, ProductRequest request) {
         validateProductName(request.name());
-
-        Category category = categoryRepository.findById(request.categoryId())
-            .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + request.categoryId()));
-
-        Product product = productRepository.findById(id)
-            .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + id));
-
+        Category category = findCategory(request.categoryId());
+        Product product = findProduct(id);
         product.update(request.name(), request.price(), request.imageUrl(), category);
         Product saved = productRepository.save(product);
         return ProductResponse.from(saved);
@@ -56,6 +46,16 @@ public class ProductService {
 
     public void delete(Long id) {
         productRepository.deleteById(id);
+    }
+
+    private Product findProduct(Long id) {
+        return productRepository.findById(id)
+            .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + id));
+    }
+
+    private Category findCategory(Long categoryId) {
+        return categoryRepository.findById(categoryId)
+            .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + categoryId));
     }
 
     private void validateProductName(String name) {
