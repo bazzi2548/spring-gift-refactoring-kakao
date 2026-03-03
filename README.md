@@ -102,6 +102,8 @@ MemberController에서 MemberService를 추출하는 작업을 직접 수행하�
 | 서비스 추출 | Controller → Service 로직 이동 | 7개 Service 클래스 신규 생성 |
 | 단위테스트 | 도메인 엔티티 + Service Mockito 테스트 | 12개 테스트 클래스 |
 | 인수테스트 | RestAssured 기반 HTTP 요청/응답 검증 | 6개 테스트 클래스 (39개 테스트) |
+| 비밀번호 암호화 | BCrypt 해싱 적용, Password 일급객체 도입 | Member, MemberService, AdminMemberController, V3 마이그레이션 |
+| 인증 횡단관심사 분리 | `@LoginMember` + `HandlerMethodArgumentResolver` 도입 | Service에서 인증 로직 제거, Controller 파라미터 주입 방식 전환 |
 
 ### 학습한 점
 - **점진적 리팩토링**: 구조 변경(리팩토링)과 작동 변경(기능 추가)을 분리하면 각 커밋의
@@ -114,3 +116,57 @@ MemberController에서 MemberService를 추출하는 작업을 직접 수행하�
 - **AI 산출물 검증의 중요성**: AI가 생성한 `@MockBean`이 실제로는 불필요한 경우가 있었다.
   V2 초기 데이터의 멤버에 `kakaoAccessToken`이 null이므로 외부 API 호출이 발생하지 않아
   린터가 제거한 것이 올바른 판단이었다. AI 코드를 그대로 수용하지 않고 검토하는 과정이 필요하다.
+
+#### 비밀번호 암호화 — `spring-security-crypto` vs `spring-boot-starter-security`
+
+비밀번호 해싱만 필요한 경우 `spring-boot-starter-security`를 추가하면
+SecurityFilterChain 자동 구성이 활성화되어 CSRF 보호, 폼 로그인, 모든 엔드포인트 차단이
+일어난다. 이를 다시 비활성화하려면 별도의 SecurityConfig를 작성해야 하므로 과하다.
+`spring-security-crypto` 모듈만 추가하면 `BCryptPasswordEncoder`만 사용할 수 있어
+기존 코드에 영향 없이 비밀번호 해싱을 적용할 수 있다.
+
+기존에 평문으로 저장된 비밀번호는 Flyway 마이그레이션(V3)으로 BCrypt 해시값으로 일괄
+UPDATE하여 변환했다. 해시값은 프로젝트 내 테스트 코드로 `BCryptPasswordEncoder.encode()`를
+호출하여 생성했다.
+
+#### Password 일급객체 — `@Embeddable` 값 객체로 도메인 로직 캡슐화
+
+비밀번호를 `String`으로 다루면 encode/matches 로직이 Service, Controller 등에 흩어진다.
+`@Embeddable Password` 클래스를 만들어 생성 시 인코딩(`encode`), 검증(`matches`)을
+한 곳에 모았다. 이로 인해 발생한 변경 범위:
+
+- `Member`의 password 필드가 `String` → `Password`로 변경
+- `Member.getPassword()`는 `password.getPassword()`로 위임하되, null 안전성 처리 추가
+- `Member.checkPassword(rawPassword, encoder)` 메소드를 추가하여 비밀번호 검증 책임을
+  Service가 아닌 도메인 객체가 담당하도록 함
+- 테스트에서는 `PasswordEncoder`의 NoOp 구현을 만들어 인코딩 없이 테스트 픽스처를 생성
+  → 테스트가 BCrypt 해싱 시간에 의존하지 않아 빠르게 실행됨
+
+일급객체 도입 시 **기존 생성자 시그니처가 변경**되므로, 해당 생성자를 사용하는 모든
+테스트 파일(MemberTest, MemberServiceTest, OrderServiceTest, WishServiceTest)에
+파급 효과가 발생한다. 비밀번호와 무관한 테스트(Order, Wish)는 이메일 전용 생성자
+`new Member(email)`를 사용하도록 변경하여 불필요한 의존을 제거했다.
+
+#### 횡단관심사 분리 — `HandlerMethodArgumentResolver`
+
+인증 로직(`Authorization` 헤더 파싱 → JWT 검증 → Member 조회)이 OrderService와
+WishService에 동일한 `resolveMember()` 메소드로 중복되어 있었다.
+인증은 특정 도메인의 비즈니스 로직이 아니라 **횡단관심사(cross-cutting concern)**이므로
+Spring MVC의 `HandlerMethodArgumentResolver`로 분리했다.
+
+적용 과정:
+1. `@LoginMember` 커스텀 어노테이션 생성 (`@Target(PARAMETER)`, `@Retention(RUNTIME)`)
+2. `LoginMemberArgumentResolver` 구현 — `supportsParameter()`에서 `@LoginMember` +
+   `Member.class` 조합을 확인하고, `resolveArgument()`에서 Authorization 헤더를 파싱하여
+   Member 객체를 반환. 인증 실패 시 `IllegalStateException("Unauthorized")` 발생
+3. `WebMvcConfig`에서 `WebMvcConfigurer.addArgumentResolvers()`로 등록
+4. Controller에서 `@RequestHeader("Authorization")` + `service.resolveMember()` 호출을
+   `@LoginMember Member member` 파라미터로 대체
+5. Service에서 `AuthenticationResolver` 의존성과 `resolveMember()` 메소드 제거
+
+결과: Controller는 `@LoginMember Member member`로 인증된 사용자를 바로 받고,
+Service는 순수 비즈니스 로직만 담당하게 되었다. 새로운 Controller에 인증이 필요하면
+파라미터에 `@LoginMember`만 붙이면 된다.
+
+`WebMvcConfig`는 `gift.config` 패키지에 두었다. `gift.auth`에 두면 동작은 하지만,
+MVC 전체 설정이므로 인증 패키지보다 공통 설정 패키지가 적절하다.

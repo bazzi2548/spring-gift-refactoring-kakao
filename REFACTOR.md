@@ -137,9 +137,9 @@ if (member == null) {
 
 | 심각도 | 위치 | 내용 |
 |---|---|---|
-| 높음 | `MemberController`, `AdminMemberController` | 패스워드 평문 저장/비교 → BCrypt 적용 |
+| ~~높음~~ | ~~`MemberController`, `AdminMemberController`~~ | ~~패스워드 평문 저장/비교 → BCrypt 적용~~ (해결: Password 일급객체 + BCryptPasswordEncoder) |
 | 높음 | `AdminMemberController`, `AdminProductController` | `/admin/*` 인가 처리 없음 |
-| 높음 | `V2__Insert_default_data.sql` | 평문 비밀번호 기본 데이터 |
+| ~~높음~~ | ~~`V2__Insert_default_data.sql`~~ | ~~평문 비밀번호 기본 데이터~~ (해결: V3 마이그레이션으로 BCrypt 해시 변환) |
 | 중간 | `KakaoAuthController` | 카카오 액세스 토큰 평문 DB 저장 |
 
 ### 동시성
