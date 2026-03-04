@@ -53,7 +53,7 @@ Step 2의 목표는 이 누락된 작동을 완성하고, 도메인 책임을 �
 
 ---
 
-### Commit 5: [작동] 주문 실패 시 트랜잭션 롤백 검증 테스트 (작성 완료, 미커밋)
+### Commit 5: [작동] 주문 실패 시 트랜잭션 롤백 검증 테스트 ✅ 완료
 
 `OrderService.create()`에서 포인트 부족으로 실패했을 때, 이미 차감된 재고가 롤백되는지 검증한다.
 
@@ -65,7 +65,7 @@ Step 2의 목표는 이 누락된 작동을 완성하고, 도메인 책임을 �
 
 ---
 
-### Commit 6: [작동] 외부 API 타임아웃 추가 (적용 완료, 미커밋)
+### Commit 6: [작동] 외부 API 타임아웃 추가 ✅ 완료
 
 외부 카카오 API 호출 시 무한 대기 방지를 위해 타임아웃을 설정한다.
 
@@ -76,7 +76,7 @@ Step 2의 목표는 이 누락된 작동을 완성하고, 도메인 책임을 �
 
 ---
 
-### Commit 7: [작동] KakaoAuthService 트랜잭션 분리
+### Commit 7: [작동] KakaoAuthService 트랜잭션 분리 ✅ 완료
 
 `handleCallback()`에서 외부 API 호출(토큰 교환, 사용자 정보 조회)이 `@Transactional` 범위 안에 있어 DB 커넥션을 장시간 점유하는 문제를 해결한다.
 
@@ -87,7 +87,7 @@ Step 2의 목표는 이 누락된 작동을 완성하고, 도메인 책임을 �
 
 ---
 
-### Commit 8: [작동] chargePoint 서비스 경유 검증 테스트
+### Commit 8: [작동] chargePoint 서비스 경유 검증 테스트 ✅ 완료
 
 chargePoint가 AdminMemberService를 경유하게 된 작동 변경의 증거.
 
@@ -95,6 +95,31 @@ chargePoint가 AdminMemberService를 경유하게 된 작동 변경의 증거.
 |---|---|
 | `AdminMemberServiceTest.java` | `chargePoint` 성공: 포인트 잔액 증가 **상태 검증** |
 | `AdminMemberServiceTest.java` | `chargePoint` 실패 (0 이하 금액): 예외 + **포인트 변화 없음** 검증 |
+
+---
+
+### OrderService 트랜잭션과 외부 API 호출 (ADR로 기록)
+
+`OrderService.create()`는 `@Transactional` 안에서 카카오 메시지를 발송한다.
+`KakaoAuthService`와 달리 외부 호출이 DB 작업 **이후**에 위치하며, try-catch로 격리되어 있다.
+
+```java
+@Transactional
+public OrderResponse create(Member member, OrderRequest request) {
+    subtractStock(option, request.quantity());   // DB
+    deductPoint(member, option, request.quantity()); // DB
+    Order saved = orderRepository.save(...);     // DB
+    sendKakaoMessageIfPossible(member, saved, option); // 외부 API (try-catch)
+    return OrderResponse.from(saved);
+}
+```
+
+**현행 유지 결정 근거:**
+- 메시지 발송 실패가 트랜잭션 롤백을 유발하지 않음 (try-catch)
+- `@TransactionalEventListener`로 분리하면 구조 복잡성이 증가
+- 트래픽 증가로 DB 커넥션 풀 고갈이 관측될 경우 재검토
+
+상세: `docs/adr/099-transaction-boundary-order-service.md`
 
 ---
 
