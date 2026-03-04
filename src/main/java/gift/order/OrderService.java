@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import gift.member.Member;
 import gift.member.MemberRepository;
@@ -15,6 +16,7 @@ import gift.option.OptionRepository;
 import gift.product.Product;
 
 @Service
+@Transactional(readOnly = true)
 public class OrderService {
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
     private final OrderRepository orderRepository;
@@ -38,6 +40,7 @@ public class OrderService {
         return orderRepository.findByMemberId(member.getId(), pageable).map(OrderResponse::from);
     }
 
+    @Transactional
     public OrderResponse create(Member member, OrderRequest request) {
         Option option = findOption(request.optionId());
         subtractStock(option, request.quantity());
