@@ -98,28 +98,45 @@ chargePoint가 AdminMemberService를 경유하게 된 작동 변경의 증거.
 
 ---
 
-### OrderService 트랜잭션과 외부 API 호출 (ADR로 기록)
+### Commit 9: [작동] OrderService 외부 API 호출을 이벤트 기반으로 분리
 
-`OrderService.create()`는 `@Transactional` 안에서 카카오 메시지를 발송한다.
-`KakaoAuthService`와 달리 외부 호출이 DB 작업 **이후**에 위치하며, try-catch로 격리되어 있다.
+`OrderService.create()`의 `@Transactional` 안에서 카카오 메시지를 발송하고 있다.
+try-catch로 격리되어 있지만, 외부 API 지연 시 DB 커넥션을 점유하는 문제는 동일하다.
+`@TransactionalEventListener`를 사용하여 트랜잭션 커밋 후 메시지를 발송하도록 변경한다.
 
 ```java
+// Before: 트랜잭션 안에서 외부 API 호출
 @Transactional
-public OrderResponse create(Member member, OrderRequest request) {
-    subtractStock(option, request.quantity());   // DB
-    deductPoint(member, option, request.quantity()); // DB
-    Order saved = orderRepository.save(...);     // DB
+public OrderResponse create(...) {
+    subtractStock(option, request.quantity());
+    deductPoint(member, option, request.quantity());
+    Order saved = orderRepository.save(...);
     sendKakaoMessageIfPossible(member, saved, option); // 외부 API (try-catch)
     return OrderResponse.from(saved);
 }
+
+// After: 트랜잭션 커밋 후 이벤트로 메시지 발송
+@Transactional
+public OrderResponse create(...) {
+    subtractStock(option, request.quantity());
+    deductPoint(member, option, request.quantity());
+    Order saved = orderRepository.save(...);
+    eventPublisher.publishEvent(new OrderCreatedEvent(...)); // 이벤트 발행
+    return OrderResponse.from(saved);
+}
+
+@TransactionalEventListener(phase = AFTER_COMMIT)
+public void handleOrderCreated(OrderCreatedEvent event) {
+    kakaoMessageClient.sendToMe(...); // 트랜잭션 밖에서 실행
+}
 ```
 
-**현행 유지 결정 근거:**
-- 메시지 발송 실패가 트랜잭션 롤백을 유발하지 않음 (try-catch)
-- `@TransactionalEventListener`로 분리하면 구조 복잡성이 증가
-- 트래픽 증가로 DB 커넥션 풀 고갈이 관측될 경우 재검토
-
-상세: `docs/adr/099-transaction-boundary-order-service.md`
+| 파일 | 변경 |
+|---|---|
+| `OrderService.java` | 메시지 발송을 이벤트 발행으로 변경 |
+| `OrderCreatedEvent.java` | 이벤트 클래스 생성 |
+| `OrderEventListener.java` | `@TransactionalEventListener`로 메시지 발송 처리 |
+| `docs/adr/099-transaction-boundary-order-service.md` | 이벤트 기반 분리 결정 기록 |
 
 ---
 
@@ -130,7 +147,7 @@ public OrderResponse create(Member member, OrderRequest request) {
 | 도메인 책임 되찾기 ≥2개 | Commit 2 (가격계산 이동) + 기완료 (Admin→AdminMemberService) | 테스트 통과 + 중복 제거 |
 | 누락된 작동 구현 | Commit 3 (Option 음수 방어) | 예외 + 수량 불변 검증 |
 | 트랜잭션 경계 세우기 | Commit 4 (클래스 레벨) + Commit 5 (롤백 테스트) | DB 재조회로 롤백 확인 |
-| 외부 API 안정성 | Commit 6 (타임아웃) + Commit 7 (트랜잭션 분리) | DB 커넥션 점유 최소화 |
+| 외부 API 안정성 | Commit 6 (타임아웃) + Commit 7 (KakaoAuth 분리) + Commit 9 (OrderService 이벤트 분리) | DB 커넥션 점유 최소화 |
 
 ## 검증 방법
 

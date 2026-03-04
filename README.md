@@ -107,5 +107,8 @@ MemberController에서 MemberService를 추출하는 작업을 직접 수행하�
 | 전역 예외 처리 | `@RestControllerAdvice` + `GlobalExceptionHandler` 도입 | Controller 6개의 중복 `@ExceptionHandler` 12개를 전역 핸들러 4개로 통합 |
 | 테스트 Fixture 패턴 | Reflection(`setId`) 제거, `protected` 생성자 + Fixture 클래스 도입 | 엔티티 4개에 `protected` 생성자 추가, Fixture 4개 생성, 테스트 3개 리팩토링 |
 
+### Step 2 리팩터링 계획
+[STEP2_PLAN.md](STEP2_PLAN.md) 참고
+
 ### 학습한 점
 [LEARNING.md](LEARNING.md) 참고
