@@ -1,16 +1,25 @@
 package gift.order;
 
 import gift.product.Product;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
+
 @Component
 public class KakaoMessageClient {
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
+
     private final RestClient restClient;
 
     public KakaoMessageClient(RestClient.Builder builder) {
-        this.restClient = builder.build();
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(CONNECT_TIMEOUT);
+        factory.setReadTimeout(READ_TIMEOUT);
+        this.restClient = builder.requestFactory(factory).build();
     }
 
     public void sendToMe(String accessToken, Order order, Product product) {
