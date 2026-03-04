@@ -60,8 +60,7 @@ public class OrderService {
     }
 
     private void deductPoint(Member member, Option option, int quantity) {
-        int price = option.getProduct().getPrice() * quantity;
-        member.deductPoint(price);
+        member.deductPoint(option.calculateTotalPrice(quantity));
         memberRepository.save(member);
     }
 

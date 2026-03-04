@@ -47,6 +47,16 @@ class OptionTest {
     }
 
     @Test
+    @DisplayName("총 가격을 계산한다")
+    void calculateTotalPrice() {
+        Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
+        Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
+        Option option = new Option(product, "Tall", 100);
+
+        assertThat(option.calculateTotalPrice(3)).isEqualTo(13500);
+    }
+
+    @Test
     @DisplayName("재고보다 많은 수량 차감 시 예외가 발생한다")
     void subtractQuantityExceedingStockThrows() {
         Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
