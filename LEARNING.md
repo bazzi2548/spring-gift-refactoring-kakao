@@ -1507,3 +1507,361 @@ Step 3: create()는 그대로 findCategory() 사용 — 변경 없음
 - "미래에 달라질 수 있으니까"라는 이유로 중복을 방치하는 습관을 방지할 수 있다.
 - DRY와 YAGNI의 균형점을 명확히 하여, 팀 내에서 "합칠까 말까" 논의에 일관된 판단 기준을 제공한다.
 - `ProductService`의 `findCategory()`, `findProduct()` 통합으로 에러 메시지 변경 시 1곳만 수정하면 된다.
+
+## 12. 트랜잭션 관리 (`@Transactional`)
+
+### 키워드
+
+| 키워드 | 무엇인가 | 왜 사용하는가 |
+|--------|----------|--------------|
+| `@Transactional` | Spring이 제공하는 선언적 트랜잭션 관리 어노테이션. 메서드 실행을 하나의 트랜잭션으로 묶어, 성공 시 커밋·실패 시 롤백한다. | 여러 DB 조작이 하나의 논리적 작업 단위일 때, 중간에 실패하면 전부 되돌려야 데이터 일관성이 유지된다. 수동으로 `commit()`/`rollback()`을 호출하지 않아도 된다. |
+| 트랜잭션 전파 (Propagation) | 이미 트랜잭션이 진행 중일 때, 새 트랜잭션을 어떻게 처리할지 결정하는 전략. | 서비스 A가 서비스 B를 호출할 때, 같은 트랜잭션으로 묶을지 별도 트랜잭션으로 분리할지 제어해야 하는 경우가 있다. |
+| 트랜잭션 격리 수준 (Isolation) | 동시에 실행되는 트랜잭션 간에 데이터를 어느 수준까지 공유할지 결정하는 설정. | 동시성 문제(Dirty Read, Non-Repeatable Read, Phantom Read)를 방지하기 위해 사용한다. |
+
+### 구현 원리
+
+#### @Transactional의 동작 방식
+
+Spring은 `@Transactional`이 붙은 빈의 **프록시 객체**를 생성한다.
+메서드 호출 시 프록시가 트랜잭션을 시작하고, 정상 완료 시 커밋, 런타임 예외 발생 시 롤백한다.
+
+```
+호출자 → [프록시: 트랜잭션 시작] → 실제 메서드 실행 → [프록시: 커밋 or 롤백]
+```
+
+**주의사항**: 같은 클래스 내의 `private` 또는 `this.method()` 호출은 프록시를 거치지 않으므로, `@Transactional`이 적용되지 않는다. 반드시 **외부에서 호출**되는 `public` 메서드에 선언해야 한다.
+
+### @Transactional 주요 옵션
+
+#### readOnly
+
+```java
+@Transactional(readOnly = true)
+public List<Member> findAll() { ... }
+```
+
+- 읽기 전용 트랜잭션임을 선언한다.
+- JPA의 **더티 체킹(변경 감지)을 생략**하여 성능이 향상된다.
+- DB에 따라 읽기 전용 최적화(레플리카 라우팅 등)를 적용할 수 있다.
+- 조회 메서드에는 항상 `readOnly = true`를 붙이는 것이 좋다.
+
+#### propagation (전파)
+
+```java
+@Transactional(propagation = Propagation.REQUIRED) // 기본값
+@Transactional(propagation = Propagation.REQUIRES_NEW)
+@Transactional(propagation = Propagation.MANDATORY)
+```
+
+| 옵션 | 동작 |
+|------|------|
+| `REQUIRED` (기본값) | 기존 트랜잭션이 있으면 참여, 없으면 새로 생성 |
+| `REQUIRES_NEW` | 항상 새 트랜잭션 생성. 기존 트랜잭션은 일시 중단 |
+| `MANDATORY` | 기존 트랜잭션이 반드시 있어야 함. 없으면 예외 |
+| `SUPPORTS` | 기존 트랜잭션이 있으면 참여, 없으면 트랜잭션 없이 실행 |
+| `NOT_SUPPORTED` | 트랜잭션 없이 실행. 기존 트랜잭션은 일시 중단 |
+| `NEVER` | 트랜잭션 없이 실행. 기존 트랜잭션이 있으면 예외 |
+| `NESTED` | 기존 트랜잭션 내에 세이브포인트를 만들어 중첩 트랜잭션 실행 |
+
+#### isolation (격리 수준)
+
+```java
+@Transactional(isolation = Isolation.DEFAULT) // 기본값
+@Transactional(isolation = Isolation.READ_COMMITTED)
+```
+
+| 옵션 | 동작 | 방지하는 문제 |
+|------|------|-------------|
+| `DEFAULT` | DB 기본 설정 사용 | DB에 따라 다름 |
+| `READ_UNCOMMITTED` | 커밋되지 않은 데이터도 읽기 가능 | — |
+| `READ_COMMITTED` | 커밋된 데이터만 읽기 | Dirty Read |
+| `REPEATABLE_READ` | 트랜잭션 내 같은 쿼리는 같은 결과 보장 | Dirty Read, Non-Repeatable Read |
+| `SERIALIZABLE` | 트랜잭션을 순차 실행 (가장 엄격) | 모든 동시성 문제 |
+
+#### rollbackFor / noRollbackFor
+
+```java
+@Transactional(rollbackFor = Exception.class)
+@Transactional(noRollbackFor = MailSendException.class)
+```
+
+- 기본적으로 `RuntimeException`과 `Error`에서만 롤백한다.
+- **체크 예외(checked exception)** 에서도 롤백하려면 `rollbackFor`를 명시해야 한다.
+- 특정 예외에서 롤백하지 않으려면 `noRollbackFor`를 사용한다.
+
+#### timeout
+
+```java
+@Transactional(timeout = 10) // 10초
+```
+
+- 지정한 시간(초) 내에 트랜잭션이 완료되지 않으면 롤백한다.
+- 장시간 실행되는 쿼리로 인한 DB 커넥션 점유를 방지한다.
+
+### 구현 코드
+
+#### OrderService — 트랜잭션으로 원자성 보장
+
+```java
+@Transactional
+public OrderResponse create(Member member, OrderRequest request) {
+    Option option = findOption(request.optionId());
+    subtractStock(option, request.quantity());   // 1. 재고 차감
+    deductPoint(member, option, request.quantity()); // 2. 포인트 차감
+    Order saved = orderRepository.save(...);     // 3. 주문 저장
+    sendKakaoMessageIfPossible(member, saved, option);
+    return OrderResponse.from(saved);
+}
+```
+
+`@Transactional` 없이 실행하면: 1번에서 재고가 차감된 후 2번에서 포인트 부족 예외가 발생하면, 재고만 줄어든 채로 남는다. `@Transactional`을 선언하면 2번 실패 시 1번의 재고 차감도 함께 롤백된다.
+
+#### 조회 메서드 — readOnly 최적화
+
+```java
+@Transactional(readOnly = true)
+public Page<OrderResponse> findByMember(Member member, Pageable pageable) {
+    return orderRepository.findByMemberId(member.getId(), pageable)
+        .map(OrderResponse::from);
+}
+```
+
+데이터를 변경하지 않는 조회 메서드에 `readOnly = true`를 선언하여 JPA 더티 체킹을 건너뛴다.
+
+### CUD/R 분류 기준
+
+| 분류 | 어노테이션 | 대상 메서드 예시 |
+|------|-----------|-----------------|
+| CUD (Create/Update/Delete) | `@Transactional` | `create()`, `update()`, `delete()`, `register()`, `chargePoint()` |
+| R (Read) | `@Transactional(readOnly = true)` | `findAll()`, `findById()`, `findByMember()`, `isNewWish()` |
+
+### 장단점
+
+**장점:**
+- **데이터 일관성 보장**: 여러 DB 조작이 원자적으로 처리되어 중간 실패 시 전체 롤백된다.
+- **선언적 관리**: 비즈니스 로직에 트랜잭션 코드가 섞이지 않아 가독성이 좋다.
+- **readOnly 최적화**: 조회 성능 향상과 의도 표현을 동시에 달성한다.
+
+**단점 또는 트레이드오프:**
+- **프록시 기반 제약**: 같은 클래스 내 호출(`this.method()`)에는 적용되지 않는다.
+- **외부 API 호출 주의**: 트랜잭션 안에서 외부 HTTP 호출 시 DB 커넥션을 오래 점유할 수 있다 (ADR-001 참고).
+- **과도한 트랜잭션 범위**: 불필요하게 큰 범위의 트랜잭션은 DB 잠금 시간을 늘려 성능 저하를 유발할 수 있다.
+
+### 트랜잭션 롤백 테스트 시 주의사항
+
+트랜잭션 롤백 동작을 검증하는 통합 테스트에서는 **테스트 클래스에 `@Transactional`을 붙이면 안 된다.**
+
+#### 이유
+
+테스트에 `@Transactional`을 붙이면 테스트 트랜잭션이 서비스 트랜잭션을 감싸버린다.
+서비스의 `@Transactional`은 기본 전파(REQUIRED)이므로 테스트 트랜잭션에 **참여**하게 되고,
+서비스에서 예외가 발생해도 실제 롤백은 테스트 트랜잭션 종료 시점에 일어난다.
+결과적으로 "서비스의 @Transactional이 롤백하는가"를 검증할 수 없다.
+
+```
+❌ 테스트 @Transactional → 서비스 @Transactional(REQUIRED) → 같은 트랜잭션에 참여 → 롤백 검증 불가
+✅ 테스트 @Transactional 없음 → 서비스 @Transactional이 독립 트랜잭션 생성 → 롤백 검증 가능
+```
+
+#### 데이터 정리 문제
+
+테스트에 `@Transactional`이 없으면 테스트 중 생성한 데이터가 DB에 남는다.
+같은 Application Context를 공유하는 다른 `@SpringBootTest`에 영향을 줄 수 있다.
+
+| 해결 방법 | 장점 | 단점 |
+|-----------|------|------|
+| `@AfterEach`로 수동 정리 | 명시적, 빠름 | 정리 코드 필요 |
+| `@DirtiesContext` | 확실한 격리 (Context 재생성) | 느림 |
+| `@Sql(executionPhase = AFTER_TEST_METHOD)` | SQL로 깔끔 | 별도 SQL 파일 필요 |
+
+#### 구현 예시
+
+```java
+@SpringBootTest  // @Transactional 없음!
+class OrderTransactionTest {
+
+    @Autowired
+    private OrderService orderService;
+    @Autowired
+    private OptionRepository optionRepository;
+    @Autowired
+    private MemberRepository memberRepository;
+
+    @Test
+    @DisplayName("포인트 부족으로 주문 실패 시 차감된 재고가 롤백된다")
+    void rollbackStockOnPointFailure() {
+        // given: 포인트 0인 회원
+        Member member = memberRepository.save(new Member("broke@test.com"));
+        Option option = optionRepository.findById(1L).orElseThrow();
+        int originalQuantity = option.getQuantity();
+
+        // when: 재고 차감 후 포인트 차감에서 실패
+        assertThatThrownBy(() -> orderService.create(member, new OrderRequest(option.getId(), 1, "테스트")))
+            .isInstanceOf(IllegalArgumentException.class);
+
+        // then: DB 재조회 → 재고 롤백 확인
+        Option reloaded = optionRepository.findById(option.getId()).orElseThrow();
+        assertThat(reloaded.getQuantity()).isEqualTo(originalQuantity);
+    }
+}
+```
+
+### 기대효과
+- `OrderService.create()`에서 포인트 부족 시 재고 차감이 자동 롤백되어 데이터 정합성이 보장된다.
+- 모든 Service 메서드에 트랜잭션 경계가 명시되어, 코드만 봐도 해당 메서드의 트랜잭션 특성을 파악할 수 있다.
+- 조회 메서드에 `readOnly = true`를 적용하여 불필요한 더티 체킹을 방지한다.
+
+## 13. RestClient와 외부 API 타임아웃
+
+### 키워드
+
+| 키워드 | 무엇인가 | 왜 사용하는가 |
+|--------|----------|--------------|
+| `RestClient` | Spring 6.1에서 도입된 동기식 HTTP 클라이언트. `RestTemplate`의 후속으로, 플루언트 API를 제공한다. | HTTP 요청을 간결하게 작성할 수 있고, `RestTemplate` 대비 가독성과 확장성이 좋다. |
+| `ClientHttpRequestFactory` | `RestClient`의 실제 HTTP 통신을 담당하는 팩토리. 커넥션 타임아웃, 읽기 타임아웃 등 저수준 설정을 관리한다. | 외부 API 호출 시 무한 대기를 방지하고, 응답 지연으로 인한 리소스 고갈을 예방한다. |
+
+### RestClient 개요
+
+#### RestTemplate → RestClient 전환
+
+Spring 6.1 이전에는 `RestTemplate`이 사실상 표준이었지만, 빌더 패턴이 아닌 메서드 호출 방식이라 가독성이 떨어졌다.
+
+```java
+// RestTemplate (기존)
+ResponseEntity<String> response = restTemplate.exchange(
+    url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+// RestClient (Spring 6.1+)
+String response = restClient.get()
+    .uri(url)
+    .header("Authorization", "Bearer " + token)
+    .retrieve()
+    .body(String.class);
+```
+
+#### RestClient 주요 메서드 체이닝
+
+```java
+restClient.post()                          // HTTP 메서드
+    .uri("https://api.example.com/data")   // 요청 URL
+    .header("Content-Type", "application/json")  // 헤더
+    .body(requestBody)                     // 요청 본문
+    .retrieve()                            // 응답 수신
+    .body(ResponseDto.class);              // 응답 본문 변환
+```
+
+| 메서드 | 역할 |
+|--------|------|
+| `get()`, `post()`, `put()`, `delete()` | HTTP 메서드 선택 |
+| `.uri(String)` | 요청 URL 지정 |
+| `.header(String, String)` | 요청 헤더 추가 |
+| `.body(Object)` | 요청 본문 설정 |
+| `.retrieve()` | 응답 수신 시작 |
+| `.body(Class<T>)` | 응답 본문을 지정한 타입으로 역직렬화 |
+| `.toBodilessEntity()` | 응답 본문 없이 상태코드만 확인 |
+
+#### RestClient.Builder
+
+Spring Boot는 `RestClient.Builder`를 자동 구성(auto-configure)하여 빈으로 제공한다.
+이를 생성자 주입으로 받아 커스텀 설정을 추가한 후 `build()`로 인스턴스를 생성한다.
+
+```java
+public KakaoLoginClient(RestClient.Builder builder) {
+    this.restClient = builder
+        .requestFactory(factory)   // 타임아웃 등 저수준 설정
+        .baseUrl("https://...")    // 공통 베이스 URL (선택)
+        .build();
+}
+```
+
+### 외부 API 타임아웃
+
+#### 왜 타임아웃이 필요한가
+
+외부 API(카카오 등)는 우리가 제어할 수 없다. 응답 지연이나 장애 시:
+- **타임아웃 없이**: 스레드가 무한 대기 → 스레드 풀 고갈 → 서비스 전체 장애
+- **타임아웃 있으면**: 지정 시간 초과 시 `ResourceAccessException` 발생 → 빠른 실패(fail-fast)
+
+#### 타임아웃 종류
+
+| 타임아웃 | 의미 | 권장값 |
+|----------|------|--------|
+| **Connect Timeout** | TCP 연결 수립까지 대기 시간. 서버가 응답하지 않거나 네트워크 문제 시 걸림. | 1~3초 |
+| **Read Timeout** | 연결 후 응답 데이터를 받기까지 대기 시간. 서버가 요청을 처리하는 데 오래 걸릴 때 걸림. | 3~10초 |
+
+#### SimpleClientHttpRequestFactory
+
+`java.net.HttpURLConnection` 기반의 가장 기본적인 팩토리.
+
+```java
+SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+factory.setConnectTimeout(Duration.ofSeconds(3));  // 연결 타임아웃
+factory.setReadTimeout(Duration.ofSeconds(5));      // 읽기 타임아웃
+```
+
+#### 글로벌 vs 클라이언트별 설정
+
+| 방식 | 장점 | 단점 |
+|------|------|------|
+| **글로벌** (`RestClient.Builder` 빈) | 중복 없음, 일관성 | 클라이언트별 차등 설정 불가 |
+| **클라이언트별** (각 Client 생성자) | 용도에 맞는 세밀한 타임아웃 | 설정 코드 반복 |
+
+### 구현 코드
+
+#### KakaoLoginClient — 인증용 (connect 3초, read 5초)
+
+```java
+@Component
+public class KakaoLoginClient {
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
+
+    private final RestClient restClient;
+
+    public KakaoLoginClient(KakaoLoginProperties properties, RestClient.Builder builder) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(CONNECT_TIMEOUT);
+        factory.setReadTimeout(READ_TIMEOUT);
+        this.restClient = builder.requestFactory(factory).build();
+        // ...
+    }
+}
+```
+
+#### KakaoMessageClient — 메시지 발송용 (connect 3초, read 5초)
+
+```java
+@Component
+public class KakaoMessageClient {
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
+
+    private final RestClient restClient;
+
+    public KakaoMessageClient(RestClient.Builder builder) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(CONNECT_TIMEOUT);
+        factory.setReadTimeout(READ_TIMEOUT);
+        this.restClient = builder.requestFactory(factory).build();
+    }
+}
+```
+
+### 트랜잭션과 외부 API 호출의 관계
+
+외부 API 호출이 `@Transactional` 범위 안에 있으면:
+- API 응답을 기다리는 동안 **DB 커넥션을 점유**한다.
+- 타임아웃이 걸려 예외가 발생하면 **트랜잭션이 롤백**될 수 있다.
+- 최악의 경우 **DB 커넥션 풀 고갈** → 서비스 전체 장애.
+
+따라서 외부 API 호출은 가능하면 **트랜잭션 밖**에서 수행하거나, 트랜잭션 안에서 호출할 경우 **try-catch로 감싸서** 트랜잭션에 영향을 주지 않도록 해야 한다.
+
+```
+❌ @Transactional 안에서 외부 API 호출 → DB 커넥션 장시간 점유
+✅ 외부 API 호출 → 결과를 가지고 → @Transactional로 DB 작업만
+✅ @Transactional 안이지만 try-catch로 격리 (OrderService 방식)
+```
+
+### 기대효과
+- 외부 API 지연/장애 시 빠르게 실패하여 스레드와 DB 커넥션 고갈을 방지한다.
+- 클라이언트별 타임아웃으로 용도에 맞는 세밀한 제어가 가능하다.

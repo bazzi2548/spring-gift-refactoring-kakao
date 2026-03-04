@@ -12,39 +12,30 @@ Step 2의 목표는 이 누락된 작동을 완성하고, 도메인 책임을 �
 
 ---
 
-## 커밋 계획 (7개, 구조 우선 → 작동 후행)
+## 커밋 계획 (구조 우선 → 작동 후행)
 
-### Commit 1: [구조] 예외 메시지를 한글로 통일
+### Commit 1: [구조] 예외 메시지를 한글로 통일 ✅ 완료
 
 영어로 작성된 예외 메시지를 모두 한글로 변경하여 일관성을 확보한다.
 테스트의 메시지 검증도 함께 동기화한다.
 
 ---
 
-### Commit 2: [구조] 가격 계산 로직을 Option 도메인으로 이동
+### Commit 2: [구조] 가격 계산 로직을 Option 도메인으로 이동 ✅ 완료
 
 **도메인 책임 되찾기 #1: 중복 제거 + 호출부 단순화**
-
-`option.getProduct().getPrice() * quantity` 계산이 2곳에 중복:
-- `OrderService.deductPoint()` (line 63)
-- `KakaoMessageClient.buildTemplate()` (line 32)
 
 | 파일 | 변경 |
 |---|---|
 | `Option.java` | `calculateTotalPrice(int quantity)` 메서드 추가 |
 | `OrderService.java` | `deductPoint()`에서 `option.calculateTotalPrice(quantity)` 호출로 변경 |
-| `KakaoMessageClient.java` | `product.getPrice() * order.getQuantity()` → `order.getOption().calculateTotalPrice(order.getQuantity())` |
 | `OptionTest.java` | `calculateTotalPrice()` 단위 테스트 추가 |
 
-개선 효과:
-- 가격 계산 중복 2곳 → 1곳으로 통합
-- Law of Demeter 위반 해소 (`option.getProduct().getPrice()` 제거)
+참고: `KakaoMessageClient.buildTemplate()`의 가격 계산은 표시용 로직이므로 별도 유지.
 
 ---
 
-### Commit 3: [구조] Option.subtractQuantity() 음수/0 방어 로직 추가
-
-REFACTOR.md에 기록된 누락 작동. `Member.deductPoint()`에는 `amount <= 0` 검증이 있지만 `Option`에는 없다.
+### Commit 3: [구조] Option.subtractQuantity() 음수/0 방어 로직 추가 ✅ 완료
 
 | 파일 | 변경 |
 |---|---|
@@ -53,38 +44,50 @@ REFACTOR.md에 기록된 누락 작동. `Member.deductPoint()`에는 `amount <= 
 
 ---
 
-### Commit 4: [작동] 모든 Service에 @Transactional 추가
+### Commit 4: [작동] 모든 Service에 클래스 레벨 @Transactional(readOnly = true) 적용 ✅ 완료
 
-트랜잭션 경계를 선언하여 롤백 동작을 추가한다.
+클래스 레벨 `@Transactional(readOnly = true)` + CUD 메서드에 `@Transactional` 오버라이드 패턴 적용.
+도메인별로 분리 커밋. ADR-001에 결정 근거 기록.
 
-| 파일 | 변경 내용 |
-|---|---|
-| `OrderService.java` | `create()` → `@Transactional`, `findByMember()` → `@Transactional(readOnly=true)` |
-| `MemberService.java` | `register()`, `login()` → `@Transactional` |
-| `AdminMemberService.java` | CUD → `@Transactional`, R → `@Transactional(readOnly=true)` |
-| `ProductService.java` | CUD → `@Transactional`, R → `@Transactional(readOnly=true)` |
-| `CategoryService.java` | CUD → `@Transactional`, R → `@Transactional(readOnly=true)` |
-| `OptionService.java` | CUD → `@Transactional`, R → `@Transactional(readOnly=true)` |
-| `WishService.java` | CUD → `@Transactional`, R → `@Transactional(readOnly=true)` |
-| `KakaoAuthService.java` | `handleCallback()` → `@Transactional` |
-
-검증: 기존 테스트 전체 통과 (`./gradlew test`)
+대상: `OrderService`, `MemberService`, `AdminMemberService`, `ProductService`, `CategoryService`, `OptionService`, `WishService`, `KakaoAuthService`
 
 ---
 
-### Commit 5: [작동] 주문 실패 시 트랜잭션 롤백 검증 테스트
+### Commit 5: [작동] 주문 실패 시 트랜잭션 롤백 검증 테스트 (작성 완료, 미커밋)
 
 `OrderService.create()`에서 포인트 부족으로 실패했을 때, 이미 차감된 재고가 롤백되는지 검증한다.
 
 **새 파일:** `src/test/java/gift/order/OrderTransactionTest.java` (`@SpringBootTest` + H2)
-- 포인트 0인 회원 + 재고 100인 옵션 준비
+- 포인트 0인 회원 + 기존 옵션 준비
 - `orderService.create()` 호출 → `IllegalArgumentException` 발생
-- **DB에서 옵션 재조회** → `quantity == 100` (롤백 확인)
-- `@Transactional` 없었으면 재고가 99로 남아있었을 것 → 이것이 작동 변경의 증거
+- **DB에서 옵션 재조회** → 재고 변화 없음 (롤백 확인)
+- `@AfterEach`로 테스트 데이터 정리 (테스트 격리)
 
 ---
 
-### Commit 6: [작동] chargePoint 서비스 경유 검증 테스트
+### Commit 6: [작동] 외부 API 타임아웃 추가 (적용 완료, 미커밋)
+
+외부 카카오 API 호출 시 무한 대기 방지를 위해 타임아웃을 설정한다.
+
+| 파일 | 변경 |
+|---|---|
+| `KakaoLoginClient.java` | `SimpleClientHttpRequestFactory`로 connect 3초, read 5초 타임아웃 |
+| `KakaoMessageClient.java` | `SimpleClientHttpRequestFactory`로 connect 3초, read 5초 타임아웃 |
+
+---
+
+### Commit 7: [작동] KakaoAuthService 트랜잭션 분리
+
+`handleCallback()`에서 외부 API 호출(토큰 교환, 사용자 정보 조회)이 `@Transactional` 범위 안에 있어 DB 커넥션을 장시간 점유하는 문제를 해결한다.
+
+| 파일 | 변경 |
+|---|---|
+| `KakaoAuthService.java` | 외부 API 호출을 트랜잭션 밖으로 분리 |
+| `MemberService.java` | 카카오 회원 등록/업데이트 메서드 추가 (자가참조 방지) |
+
+---
+
+### Commit 8: [작동] chargePoint 서비스 경유 검증 테스트
 
 chargePoint가 AdminMemberService를 경유하게 된 작동 변경의 증거.
 
@@ -95,24 +98,14 @@ chargePoint가 AdminMemberService를 경유하게 된 작동 변경의 증거.
 
 ---
 
-### Commit 6: [작동] calculateTotalPrice, subtractQuantity 단위 테스트 보강
-
-Commit 1, 2에서 추가한 도메인 메서드의 작동 증거를 보강한다.
-
-| 파일 | 변경 |
-|---|---|
-| `OptionTest.java` | `calculateTotalPrice()` 정상 계산 검증 |
-| `OptionTest.java` | `subtractQuantity(0)`, `subtractQuantity(-5)` → 예외 + 수량 불변 검증 |
-
----
-
 ## 요구사항 매핑
 
 | 요구사항 | 커밋 | 증거 |
 |---|---|---|
-| 도메인 책임 되찾기 ≥2개 | Commit 1 (가격계산 이동) + 기완료 (Admin→AdminMemberService) | 테스트 통과 + 중복 제거 |
-| 누락된 작동 구현 | Commit 2 (Option 음수 방어) + Commit 6 (테스트) | 예외 + 수량 불변 검증 |
-| 트랜잭션 경계 세우기 | Commit 3 (작동) + Commit 4 (작동) | DB 재조회로 롤백 확인 |
+| 도메인 책임 되찾기 ≥2개 | Commit 2 (가격계산 이동) + 기완료 (Admin→AdminMemberService) | 테스트 통과 + 중복 제거 |
+| 누락된 작동 구현 | Commit 3 (Option 음수 방어) | 예외 + 수량 불변 검증 |
+| 트랜잭션 경계 세우기 | Commit 4 (클래스 레벨) + Commit 5 (롤백 테스트) | DB 재조회로 롤백 확인 |
+| 외부 API 안정성 | Commit 6 (타임아웃) + Commit 7 (트랜잭션 분리) | DB 커넥션 점유 최소화 |
 
 ## 검증 방법
 
