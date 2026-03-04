@@ -4,11 +4,13 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import gift.product.Product;
 import gift.product.ProductRepository;
 
 @Service
+@Transactional(readOnly = true)
 public class OptionService {
     private final OptionRepository optionRepository;
     private final ProductRepository productRepository;
@@ -25,6 +27,7 @@ public class OptionService {
             .toList();
     }
 
+    @Transactional
     public OptionResponse create(Long productId, OptionRequest request) {
         validateOptionName(request.name());
         Product product = findProduct(productId);
@@ -33,6 +36,7 @@ public class OptionService {
         return OptionResponse.from(saved);
     }
 
+    @Transactional
     public void delete(Long productId, Long optionId) {
         findProduct(productId);
         validateNotLastOption(productId);
