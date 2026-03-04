@@ -98,7 +98,7 @@ chargePoint가 AdminMemberService를 경유하게 된 작동 변경의 증거.
 
 ---
 
-### Commit 9: [작동] OrderService 외부 API 호출을 이벤트 기반으로 분리
+### Commit 9: [작동] OrderService 외부 API 호출을 이벤트 기반으로 분리 ✅ 완료
 
 `OrderService.create()`의 `@Transactional` 안에서 카카오 메시지를 발송하고 있다.
 try-catch로 격리되어 있지만, 외부 API 지연 시 DB 커넥션을 점유하는 문제는 동일하다.
