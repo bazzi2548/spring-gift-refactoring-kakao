@@ -57,6 +57,32 @@ class OptionTest {
     }
 
     @Test
+    @DisplayName("0 이하 수량 차감 시 예외가 발생한다")
+    void subtractZeroQuantityThrows() {
+        Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
+        Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
+        Option option = new Option(product, "Tall", 100);
+
+        assertThatThrownBy(() -> option.subtractQuantity(0))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("차감 수량은 1 이상이어야 합니다");
+        assertThat(option.getQuantity()).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("음수 수량 차감 시 예외가 발생한다")
+    void subtractNegativeQuantityThrows() {
+        Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
+        Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
+        Option option = new Option(product, "Tall", 100);
+
+        assertThatThrownBy(() -> option.subtractQuantity(-5))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("차감 수량은 1 이상이어야 합니다");
+        assertThat(option.getQuantity()).isEqualTo(100);
+    }
+
+    @Test
     @DisplayName("재고보다 많은 수량 차감 시 예외가 발생한다")
     void subtractQuantityExceedingStockThrows() {
         Category category = new Category("교환권", "#FF0000", "http://img.com/cat.png", "설명");
