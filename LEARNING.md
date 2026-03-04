@@ -1858,10 +1858,168 @@ public class KakaoMessageClient {
 
 ```
 ❌ @Transactional 안에서 외부 API 호출 → DB 커넥션 장시간 점유
-✅ 외부 API 호출 → 결과를 가지고 → @Transactional로 DB 작업만
-✅ @Transactional 안이지만 try-catch로 격리 (OrderService 방식)
+✅ 외부 API 호출 → 결과를 가지고 → @Transactional로 DB 작업만 (KakaoAuthService 방식)
+✅ @Transactional 커밋 후 이벤트로 외부 API 호출 (OrderService 방식)
 ```
 
 ### 기대효과
 - 외부 API 지연/장애 시 빠르게 실패하여 스레드와 DB 커넥션 고갈을 방지한다.
 - 클라이언트별 타임아웃으로 용도에 맞는 세밀한 제어가 가능하다.
+
+## 14. Spring 이벤트 기반 아키텍처 (`@TransactionalEventListener`)
+
+### 키워드
+
+| 키워드 | 무엇인가 | 왜 사용하는가 |
+|--------|----------|--------------|
+| `ApplicationEventPublisher` | Spring이 제공하는 이벤트 발행 인터페이스. `publishEvent()`로 이벤트를 발행한다. | 컴포넌트 간 직접 의존 없이 느슨한 결합으로 통신할 수 있다. |
+| `@TransactionalEventListener` | 트랜잭션 상태에 따라 이벤트를 처리하는 리스너. `AFTER_COMMIT`, `AFTER_ROLLBACK` 등의 phase를 지정할 수 있다. | 트랜잭션 커밋이 확정된 후에만 부수 효과(알림, 외부 API 호출 등)를 실행하여 데이터 정합성을 보장한다. |
+| `@EventListener` | 트랜잭션과 무관하게 이벤트를 즉시 처리하는 리스너. | 트랜잭션 상태와 무관한 이벤트 처리에 사용한다. |
+
+### @EventListener vs @TransactionalEventListener
+
+| 항목 | `@EventListener` | `@TransactionalEventListener` |
+|------|-------------------|-------------------------------|
+| 실행 시점 | 이벤트 발행 즉시 | 트랜잭션 phase에 따라 |
+| 트랜잭션 인식 | 없음 | 있음 (`AFTER_COMMIT`, `AFTER_ROLLBACK` 등) |
+| 용도 | 트랜잭션과 무관한 처리 | DB 커밋 확정 후 부수 효과 실행 |
+| 주의사항 | 트랜잭션 롤백 시에도 실행됨 | 트랜잭션이 없으면 기본적으로 실행 안 됨 |
+
+### TransactionPhase 옵션
+
+```java
+@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT) // 기본값
+```
+
+| Phase | 실행 시점 | 용도 |
+|-------|----------|------|
+| `AFTER_COMMIT` | 트랜잭션 커밋 성공 후 | 알림 발송, 외부 API 호출, 캐시 갱신 |
+| `AFTER_ROLLBACK` | 트랜잭션 롤백 후 | 실패 알림, 보상 로직 |
+| `AFTER_COMPLETION` | 커밋/롤백 상관없이 완료 후 | 리소스 정리 |
+| `BEFORE_COMMIT` | 커밋 직전 | 추가 검증, 감사 로그 |
+
+### 왜 이벤트 기반으로 분리하는가
+
+#### 문제: 트랜잭션 안에서 외부 API 호출
+
+```java
+// Before: 트랜잭션 안에서 메시지 발송
+@Transactional
+public OrderResponse create(Member member, OrderRequest request) {
+    subtractStock(option, request.quantity());
+    deductPoint(member, option, request.quantity());
+    Order saved = orderRepository.save(...);
+    sendKakaoMessageIfPossible(member, saved, option); // 외부 API
+    return OrderResponse.from(saved);
+}
+```
+
+try-catch로 롤백은 방지하지만:
+1. **DB 커넥션 점유**: 외부 API 응답을 기다리는 동안 커넥션을 잡고 있음
+2. **재시도 확장 불가**: 트랜잭션 안에서 재시도하면 커넥션 점유가 극대화됨
+3. **책임 혼재**: OrderService가 주문과 알림을 모두 담당
+
+#### 해결: 이벤트로 분리
+
+```java
+// After: 이벤트 발행만
+@Transactional
+public OrderResponse create(Member member, OrderRequest request) {
+    subtractStock(option, request.quantity());
+    deductPoint(member, option, request.quantity());
+    Order saved = orderRepository.save(...);
+    eventPublisher.publishEvent(new OrderCreatedEvent(accessToken, saved, product));
+    return OrderResponse.from(saved);
+}
+```
+
+`publishEvent()`는 이벤트 객체를 등록만 하고, 실제 리스너 실행은 트랜잭션 커밋 후에 일어난다.
+따라서 DB 작업이 끝나면 즉시 커넥션이 반환되고, 외부 API 호출은 커넥션 없이 실행된다.
+
+### 구현 코드
+
+#### 이벤트 클래스
+
+```java
+public record OrderCreatedEvent(
+    String accessToken,
+    Order order,
+    Product product
+) {
+}
+```
+
+이벤트는 리스너가 필요로 하는 데이터를 담는다.
+`AFTER_COMMIT` 시점에는 영속성 컨텍스트가 닫혀 있으므로, 지연 로딩에 의존하지 않고 필요한 데이터를 직접 전달한다.
+
+#### 이벤트 리스너
+
+```java
+@Component
+public class OrderEventListener {
+    private static final Logger log = LoggerFactory.getLogger(OrderEventListener.class);
+    private final KakaoMessageClient kakaoMessageClient;
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleOrderCreated(OrderCreatedEvent event) {
+        try {
+            kakaoMessageClient.sendToMe(event.accessToken(), event.order(), event.product());
+        } catch (Exception e) {
+            log.warn("카카오 메시지 발송 실패: orderId={}", event.order().getId(), e);
+        }
+    }
+}
+```
+
+- `AFTER_COMMIT`: 주문이 확실히 저장된 후에만 메시지 발송
+- try-catch: 발송 실패가 애플리케이션 에러로 전파되지 않도록 방어
+
+#### OrderService — 이벤트 발행
+
+```java
+@Service
+@Transactional(readOnly = true)
+public class OrderService {
+    private final ApplicationEventPublisher eventPublisher;
+    // KakaoMessageClient 의존성 제거
+
+    @Transactional
+    public OrderResponse create(Member member, OrderRequest request) {
+        Option option = findOption(request.optionId());
+        subtractStock(option, request.quantity());
+        deductPoint(member, option, request.quantity());
+        Order saved = orderRepository.save(new Order(...));
+        publishOrderCreatedEvent(member, saved, option);
+        return OrderResponse.from(saved);
+    }
+
+    private void publishOrderCreatedEvent(Member member, Order order, Option option) {
+        if (member.getKakaoAccessToken() == null) {
+            return;
+        }
+        eventPublisher.publishEvent(
+            new OrderCreatedEvent(member.getKakaoAccessToken(), order, option.getProduct()));
+    }
+}
+```
+
+- `KakaoMessageClient` 의존성이 `ApplicationEventPublisher`로 교체됨
+- OrderService는 주문 로직에만 집중, 메시지 발송은 리스너가 담당
+
+### 장단점
+
+**장점:**
+- **DB 커넥션 보호**: 외부 API 호출이 트랜잭션 밖에서 실행되어 커넥션 점유 최소화
+- **책임 분리**: 주문(OrderService) ↔ 알림(OrderEventListener)이 명확히 분리
+- **확장성**: 리스너 추가만으로 새로운 부수 효과(SMS, 이메일 등) 추가 가능
+- **안전성**: 트랜잭션 롤백 시 이벤트가 실행되지 않아 잘못된 알림 방지
+
+**단점 또는 트레이드오프:**
+- 이벤트 클래스, 리스너 등 구조가 추가됨
+- 리스너 실패 시 주문은 이미 커밋 → 메시지 미발송 가능 (향후 재시도 로직으로 보완)
+- 트랜잭션이 없는 컨텍스트에서 `publishEvent()` 호출 시 `@TransactionalEventListener`가 기본적으로 실행되지 않음 (`fallbackExecution = true`로 변경 가능)
+
+### 기대효과
+- OrderService에서 `KakaoMessageClient` 의존성이 제거되어 주문 로직이 단순해진다.
+- 향후 재시도, 다른 알림 채널 추가 등을 리스너 레벨에서 독립적으로 처리할 수 있다.
+- DB 커넥션 점유 시간이 최소화되어 동시 주문 처리 능력이 향상된다.

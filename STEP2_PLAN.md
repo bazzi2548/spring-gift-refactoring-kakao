@@ -104,33 +104,6 @@ chargePoint가 AdminMemberService를 경유하게 된 작동 변경의 증거.
 try-catch로 격리되어 있지만, 외부 API 지연 시 DB 커넥션을 점유하는 문제는 동일하다.
 `@TransactionalEventListener`를 사용하여 트랜잭션 커밋 후 메시지를 발송하도록 변경한다.
 
-```java
-// Before: 트랜잭션 안에서 외부 API 호출
-@Transactional
-public OrderResponse create(...) {
-    subtractStock(option, request.quantity());
-    deductPoint(member, option, request.quantity());
-    Order saved = orderRepository.save(...);
-    sendKakaoMessageIfPossible(member, saved, option); // 외부 API (try-catch)
-    return OrderResponse.from(saved);
-}
-
-// After: 트랜잭션 커밋 후 이벤트로 메시지 발송
-@Transactional
-public OrderResponse create(...) {
-    subtractStock(option, request.quantity());
-    deductPoint(member, option, request.quantity());
-    Order saved = orderRepository.save(...);
-    eventPublisher.publishEvent(new OrderCreatedEvent(...)); // 이벤트 발행
-    return OrderResponse.from(saved);
-}
-
-@TransactionalEventListener(phase = AFTER_COMMIT)
-public void handleOrderCreated(OrderCreatedEvent event) {
-    kakaoMessageClient.sendToMe(...); // 트랜잭션 밖에서 실행
-}
-```
-
 | 파일 | 변경 |
 |---|---|
 | `OrderService.java` | 메시지 발송을 이벤트 발행으로 변경 |
