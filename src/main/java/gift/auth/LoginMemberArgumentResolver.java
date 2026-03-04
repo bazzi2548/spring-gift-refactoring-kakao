@@ -34,7 +34,7 @@ public class LoginMemberArgumentResolver implements HandlerMethodArgumentResolve
 		Member member = authenticationResolver.extractMember(authorization);
 
 		if (member == null) {
-			throw new IllegalStateException("Unauthorized");
+			throw new IllegalStateException("인증이 필요합니다.");
 		}
 
 		return member;

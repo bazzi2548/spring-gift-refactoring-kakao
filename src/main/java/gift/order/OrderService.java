@@ -51,7 +51,7 @@ public class OrderService {
 
     private Option findOption(Long optionId) {
         return optionRepository.findById(optionId)
-            .orElseThrow(() -> new NoSuchElementException("Option not found. id=" + optionId));
+            .orElseThrow(() -> new NoSuchElementException("옵션이 존재하지 않습니다. id=" + optionId));
     }
 
     private void subtractStock(Option option, int quantity) {

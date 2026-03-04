@@ -50,12 +50,12 @@ public class ProductService {
 
     private Product findProduct(Long id) {
         return productRepository.findById(id)
-            .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + id));
+            .orElseThrow(() -> new NoSuchElementException("상품이 존재하지 않습니다. id=" + id));
     }
 
     private Category findCategory(Long categoryId) {
         return categoryRepository.findById(categoryId)
-            .orElseThrow(() -> new NoSuchElementException("Category not found. id=" + categoryId));
+            .orElseThrow(() -> new NoSuchElementException("카테고리가 존재하지 않습니다. id=" + categoryId));
     }
 
     private void validateProductName(String name) {

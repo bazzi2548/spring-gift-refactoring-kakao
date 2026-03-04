@@ -169,6 +169,6 @@ class WishServiceTest {
 
         assertThatThrownBy(() -> wishService.remove(member, 10L))
             .isInstanceOf(SecurityException.class)
-            .hasMessageContaining("Forbidden");
+            .hasMessageContaining("권한이 없습니다");
     }
 }

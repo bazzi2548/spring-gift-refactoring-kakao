@@ -75,7 +75,7 @@ class MemberServiceTest {
 
         assertThatThrownBy(() -> memberService.register(request))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("already registered");
+            .hasMessageContaining("이미 등록된 이메일");
     }
 
     @Test
@@ -102,7 +102,7 @@ class MemberServiceTest {
 
         assertThatThrownBy(() -> memberService.login(request))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Invalid email or password");
+            .hasMessageContaining("이메일 또는 비밀번호가 올바르지 않습니다");
     }
 
     @Test
@@ -116,7 +116,7 @@ class MemberServiceTest {
 
         assertThatThrownBy(() -> memberService.login(request))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Invalid email or password");
+            .hasMessageContaining("이메일 또는 비밀번호가 올바르지 않습니다");
     }
 
     @Test
@@ -129,6 +129,6 @@ class MemberServiceTest {
 
         assertThatThrownBy(() -> memberService.login(request))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Invalid email or password");
+            .hasMessageContaining("이메일 또는 비밀번호가 올바르지 않습니다");
     }
 }

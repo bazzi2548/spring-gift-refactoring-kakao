@@ -28,7 +28,7 @@ public class WishService {
 
     public WishResponse add(Member member, WishRequest request) {
         Product product = productRepository.findById(request.productId())
-            .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + request.productId()));
+            .orElseThrow(() -> new NoSuchElementException("상품이 존재하지 않습니다. id=" + request.productId()));
 
         return wishRepository.findByMemberIdAndProductId(member.getId(), product.getId())
             .map(WishResponse::from)
@@ -44,10 +44,10 @@ public class WishService {
 
     public void remove(Member member, Long wishId) {
         Wish wish = wishRepository.findById(wishId)
-            .orElseThrow(() -> new NoSuchElementException("Wish not found. id=" + wishId));
+            .orElseThrow(() -> new NoSuchElementException("위시가 존재하지 않습니다. id=" + wishId));
 
         if (!wish.getMemberId().equals(member.getId())) {
-            throw new SecurityException("Forbidden");
+            throw new SecurityException("권한이 없습니다.");
         }
 
         wishRepository.delete(wish);

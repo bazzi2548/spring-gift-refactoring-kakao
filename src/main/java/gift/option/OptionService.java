@@ -42,13 +42,13 @@ public class OptionService {
 
     private Product findProduct(Long productId) {
         return productRepository.findById(productId)
-            .orElseThrow(() -> new NoSuchElementException("Product not found. id=" + productId));
+            .orElseThrow(() -> new NoSuchElementException("상품이 존재하지 않습니다. id=" + productId));
     }
 
     private Option findOption(Long optionId, Long productId) {
         return optionRepository.findById(optionId)
             .filter(o -> o.getProduct().getId().equals(productId))
-            .orElseThrow(() -> new NoSuchElementException("Option not found. id=" + optionId));
+            .orElseThrow(() -> new NoSuchElementException("옵션이 존재하지 않습니다. id=" + optionId));
     }
 
     private void validateDuplicateName(Long productId, String name) {
