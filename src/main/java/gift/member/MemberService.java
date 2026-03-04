@@ -44,4 +44,15 @@ public class MemberService {
         String token = jwtProvider.createToken(member.getEmail());
         return new TokenResponse(token);
     }
+
+    @Transactional
+    public TokenResponse registerOrUpdateKakaoMember(String email, String accessToken) {
+        Member member = memberRepository.findByEmail(email)
+            .orElseGet(() -> new Member(email));
+        member.updateKakaoAccessToken(accessToken);
+        memberRepository.save(member);
+
+        String token = jwtProvider.createToken(member.getEmail());
+        return new TokenResponse(token);
+    }
 }
