@@ -3,8 +3,10 @@ package gift.auth;
 import gift.member.Member;
 import gift.member.MemberRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional(readOnly = true)
 public class KakaoAuthService {
     private final KakaoLoginClient kakaoLoginClient;
     private final MemberRepository memberRepository;
@@ -20,6 +22,7 @@ public class KakaoAuthService {
         this.jwtProvider = jwtProvider;
     }
 
+    @Transactional
     public TokenResponse handleCallback(String code) {
         KakaoLoginClient.KakaoTokenResponse kakaoToken = kakaoLoginClient.requestAccessToken(code);
         KakaoLoginClient.KakaoUserResponse kakaoUser = kakaoLoginClient.requestUserInfo(kakaoToken.accessToken());
