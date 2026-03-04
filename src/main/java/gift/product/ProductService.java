@@ -6,11 +6,13 @@ import java.util.NoSuchElementException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import gift.category.Category;
 import gift.category.CategoryRepository;
 
 @Service
+@Transactional(readOnly = true)
 public class ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
@@ -28,6 +30,7 @@ public class ProductService {
         return ProductResponse.from(findProduct(id));
     }
 
+    @Transactional
     public ProductResponse create(ProductRequest request) {
         validateProductName(request.name());
         Category category = findCategory(request.categoryId());
@@ -35,6 +38,7 @@ public class ProductService {
         return ProductResponse.from(saved);
     }
 
+    @Transactional
     public ProductResponse update(Long id, ProductRequest request) {
         validateProductName(request.name());
         Category category = findCategory(request.categoryId());
@@ -44,6 +48,7 @@ public class ProductService {
         return ProductResponse.from(saved);
     }
 
+    @Transactional
     public void delete(Long id) {
         productRepository.deleteById(id);
     }
