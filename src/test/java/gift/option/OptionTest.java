@@ -53,7 +53,7 @@ class OptionTest {
         Product product = new Product("아메리카노", 4500, "http://img.com/coffee.png", category);
         Option option = new Option(product, "Tall", 100);
 
-        assertThat(option.calculateTotalPrice(3)).isEqualTo(13500);
+        assertThat(option.getPrice() * 3).isEqualTo(13500);
     }
 
     @Test

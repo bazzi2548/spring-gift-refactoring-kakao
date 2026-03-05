@@ -53,8 +53,8 @@ public class Option {
         this.quantity -= amount;
     }
 
-    public int calculateTotalPrice(int quantity) {
-        return product.getPrice() * quantity;
+    public int getPrice() {
+        return product.getPrice();
     }
 
     public Long getId() {
