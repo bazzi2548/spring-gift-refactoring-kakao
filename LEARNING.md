@@ -2069,3 +2069,94 @@ public record OrderCreatedEvent(
 
 record를 변경해야 하는 것이 단점처럼 보이지만, **이벤트의 데이터 계약이 코드에 명시적으로 드러나는 것**이 오히려 장점이다.
 숨겨진 결합(엔티티 연관관계 체인)보다 명시적 결합(record 필드)이 유지보수에 유리하다.
+
+## 16. 테스트에서 Spring 프록시 경유 검증
+
+### 왜 프록시 경유가 중요한가
+
+Spring의 `@Transactional`은 **프록시 기반**으로 동작한다.
+빈이 다른 빈의 메서드를 호출할 때만 프록시를 거치고, 같은 클래스 내부 호출(self-invocation)은 프록시를 우회한다.
+
+```
+KakaoAuthService → MemberService.registerOrUpdateKakaoMember()
+                   ↑ 프록시 경유 ✅ (다른 빈 호출)
+
+MemberService 내부에서 this.registerOrUpdateKakaoMember()
+                   ↑ 프록시 우회 ❌ (self-invocation)
+```
+
+따라서 서비스 간 위임 구조로 리팩토링한 후에는, 실제 프록시를 경유해서 `@Transactional`이 동작하는지 **통합 테스트로 검증**해야 한다.
+
+### Mock 테스트로는 검증 불가
+
+`@ExtendWith(MockitoExtension.class)` 단위 테스트에서는 Spring 컨테이너가 뜨지 않으므로 프록시가 생성되지 않는다.
+`@Transactional`이 실제로 적용되는지 확인하려면 `@SpringBootTest`로 실제 빈 주입 환경이 필요하다.
+
+### 검증 방법
+
+`@SpringBootTest` + H2 환경에서:
+
+1. 외부 API 의존성은 `@MockBean`으로 stub
+2. 실제 서비스 빈을 통해 메서드 호출
+3. **DB 상태를 직접 조회**하여 트랜잭션 커밋 여부 확인
+
+```java
+@SpringBootTest
+class KakaoAuthTransactionTest {
+
+    @Autowired
+    private KakaoAuthService kakaoAuthService; // 실제 빈
+
+    @MockBean
+    private KakaoLoginClient kakaoLoginClient; // 외부 API stub
+
+    @Autowired
+    private MemberRepository memberRepository;
+}
+```
+
+- `KakaoAuthService`가 `MemberService`를 호출할 때 Spring 프록시를 경유
+- `MemberService.registerOrUpdateKakaoMember()`의 `@Transactional`이 실제로 동작
+- DB에 회원이 저장되었다면 트랜잭션 커밋이 정상 동작한 증거
+
+### @Mock vs @MockitoBean (구 @MockBean)
+
+| | `@Mock` | `@MockitoBean` (`@MockBean`) |
+|---|---|---|
+| 소속 | Mockito | Spring Boot Test |
+| Spring 컨텍스트 | 없음 | 있음 |
+| 동작 | 순수 Mock 객체 생성 | **Spring 컨텍스트의 실제 빈을 Mock으로 교체** |
+| 사용 환경 | `@ExtendWith(MockitoExtension.class)` | `@SpringBootTest` |
+| 프록시 | 없음 | Spring 프록시 체인 유지 |
+
+```java
+// 단위 테스트 — Spring 컨텍스트 없이 순수 Mock
+@ExtendWith(MockitoExtension.class)
+class OrderServiceTest {
+    @Mock
+    private OrderRepository orderRepository; // 순수 Mock 객체
+    @InjectMocks
+    private OrderService orderService; // Mock을 주입한 인스턴스 (프록시 아님)
+}
+
+// 통합 테스트 — Spring 컨텍스트의 빈을 Mock으로 교체
+@SpringBootTest
+class KakaoAuthTransactionTest {
+    @Autowired
+    private KakaoAuthService kakaoAuthService; // 실제 빈 (프록시 경유)
+    @MockitoBean
+    private KakaoLoginClient kakaoLoginClient; // 컨텍스트 내 빈이 Mock으로 교체됨
+}
+```
+
+**핵심 차이**: `@Mock`은 Spring과 무관한 가짜 객체이고, `@MockitoBean`은 Spring 컨텍스트에 등록된 실제 빈을 Mock으로 **교체**한다.
+따라서 `@MockitoBean`을 사용하면 다른 빈들이 이 Mock을 주입받아도 프록시 체인은 정상 동작한다.
+
+> **참고**: Spring Boot 3.4부터 `@MockBean`은 deprecated되고 `@MockitoBean`으로 대체되었다.
+> 패키지도 `org.springframework.boot.test.mock.mockito` → `org.springframework.test.context.bean.override.mockito`로 변경.
+
+### 핵심 포인트
+
+- **단위 테스트(`@Mock`)**: 로직 검증에 적합, 프록시/트랜잭션 검증 불가
+- **통합 테스트(`@MockitoBean`)**: 외부 의존성만 Mock으로 교체하고, 프록시 경유 + 트랜잭션 커밋/롤백 + DB 상태 검증 가능
+- 서비스 간 위임 구조를 변경했다면, 프록시 체인이 정상인지 통합 테스트로 반드시 확인
