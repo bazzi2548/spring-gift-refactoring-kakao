@@ -2023,3 +2023,49 @@ public class OrderService {
 - OrderService에서 `KakaoMessageClient` 의존성이 제거되어 주문 로직이 단순해진다.
 - 향후 재시도, 다른 알림 채널 추가 등을 리스너 레벨에서 독립적으로 처리할 수 있다.
 - DB 커넥션 점유 시간이 최소화되어 동시 주문 처리 능력이 향상된다.
+
+## 15. 이벤트 객체에는 엔티티가 아닌 값 스냅샷을 전달한다
+
+### 문제: AFTER_COMMIT 시점의 엔티티 참조
+
+`@TransactionalEventListener(phase = AFTER_COMMIT)` 리스너는 트랜잭션 커밋 후에 실행된다.
+이 시점에는 **영속성 컨텍스트가 닫혀 있으므로**, 이벤트에 담긴 엔티티에서 lazy loading이 필요한 연관관계에 접근하면 `LazyInitializationException`이 발생한다.
+
+```java
+// 위험: 엔티티 참조를 이벤트에 담음
+public record OrderCreatedEvent(String accessToken, Order order, Product product) {}
+
+// AFTER_COMMIT 리스너에서
+event.order().getOption().getName(); // LazyInitializationException!
+```
+
+현재 직접 필드만 접근하면 문제없지만, 확장 시 누군가 연관관계를 타는 순간 런타임 에러가 발생한다.
+
+### 해결: 값 스냅샷으로 엔티티 참조 제거
+
+```java
+// 안전: 필요한 값만 복사
+public record OrderCreatedEvent(
+    String accessToken,
+    Long orderId,
+    String productName,
+    int productPrice,
+    String optionName,
+    int quantity,
+    String message
+) {}
+```
+
+이벤트 발행 시점(트랜잭션 안)에서 필요한 값을 꺼내서 넘기면, 리스너는 영속성 컨텍스트와 완전히 무관하게 동작한다.
+
+### 엔티티 참조 vs 값 스냅샷
+
+| | 엔티티 참조 | 값 스냅샷 |
+|---|---|---|
+| 확장 시 | record 변경 없음 | record 변경 필요 |
+| 의존 관계 | 숨겨져 있음 (어떤 필드를 쓰는지 모름) | 명시적 (record 필드가 곧 계약) |
+| 실패 시점 | 런타임 (`LazyInitializationException`) | 컴파일 타임 |
+| 영속성 컨텍스트 | 의존 (AFTER_COMMIT에서 위험) | 무관 |
+
+record를 변경해야 하는 것이 단점처럼 보이지만, **이벤트의 데이터 계약이 코드에 명시적으로 드러나는 것**이 오히려 장점이다.
+숨겨진 결합(엔티티 연관관계 체인)보다 명시적 결합(record 필드)이 유지보수에 유리하다.
