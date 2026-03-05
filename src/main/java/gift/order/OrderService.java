@@ -68,6 +68,6 @@ public class OrderService {
         if (member.getKakaoAccessToken() == null) {
             return;
         }
-        eventPublisher.publishEvent(new OrderCreatedEvent(member.getKakaoAccessToken(), order, option.getProduct()));
+        eventPublisher.publishEvent(OrderCreatedEvent.of(member, order, option));
     }
 }
