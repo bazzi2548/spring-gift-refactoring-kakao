@@ -31,8 +31,6 @@ class AdminMemberServiceTest {
     void chargePointSuccess() {
         Member member = MemberFixture.member(1L, "user@test.com");
         given(memberRepository.findById(1L)).willReturn(Optional.of(member));
-        given(memberRepository.save(member)).willReturn(member);
-
         adminMemberService.chargePoint(1L, 5000);
 
         assertThat(member.getPoint()).isEqualTo(5000);
